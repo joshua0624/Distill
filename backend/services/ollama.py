@@ -86,13 +86,17 @@ Source: {source_name}
 {content_section}
 
 SCORING RULES:
-- Score 80-100: title or content directly matches something in the user's interest list
-- Score 50-79: related to their interests or something they'd plausibly enjoy
-- Score 20-49: tangentially relevant, mildly interesting
-- Score 0-19: completely off-topic, explicitly unwanted (celebrities, political content, pure filler)
-- When only the title is available, score based on the title alone — do not default to 0
-- SPECIFICITY: Match precisely, not by broad category. If the user listed VALORANT and Rocket League, other games (Minecraft, Clash of Clans, etc.) should score 0-20 unless they are clearly relevant. If the user listed Houston Rockets and Miami Dolphins, other sports teams score low.
-- is_low_density is true ONLY for: pure reaction clips, highlight reels with zero commentary, or videos that are clearly short clips padded to full length. Sports analysis, gaming commentary, and educational videos are NOT low density.
+- Score 80-100: content is directly and explicitly about something named in the user's interest list
+- Score 50-79: content is clearly adjacent to a named interest and the user would plausibly enjoy it
+- Score 20-49: loosely related, mildly interesting
+- Score 0-19: off-topic, unlisted, or explicitly unwanted
+
+HARD RULES — apply these before anything else:
+- Games: ONLY games explicitly named in the interest list score above 20. Clash of Clans, Apex Legends, Counter-Strike, Minecraft, Hypixel, and any other game NOT named in the list scores 0-15, no matter how interesting the content is.
+- Sports: ONLY the specific teams/sports named in the interest list score above 20. Other teams and other sports score 0-15.
+- Do NOT infer broad categories. "The user likes VALORANT" does NOT mean they like all FPS games or all competitive games.
+- Do NOT reward content just because the transcript discusses strategy, skill, or mechanics — that applies to every game and is not a match signal.
+- is_low_density is true ONLY for: pure reaction clips, highlight reels with no analysis, or obvious clip-padding. Game guides, analysis, and commentary are NOT low density.
 
 Respond with JSON only, no explanation:
 {{"relevance_score": <integer 0-100>, "summary": "<2-3 sentences about what this content covers>", "is_low_density": <true or false>}}"""
