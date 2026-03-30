@@ -71,31 +71,30 @@ def _build_prompt(
     if transcript_or_body:
         content_section = f"Content:\n{transcript_or_body}"
     elif description:
-        content_section = f"Description:\n{description}\n\n(No transcript available — scoring based on title and description only.)"
+        content_section = f"Description:\n{description}"
     else:
-        content_section = "(No content body available — scoring based on title only.)"
+        content_section = "(Title only — no description or transcript available.)"
 
-    return f"""You are a content relevance evaluator. Score the following {content_type_label} for a user with these interests:
+    return f"""You are scoring a {content_type_label} for personal relevance. Be accurate — do not default to 0.
 
+USER INTERESTS:
 {interest_profile}
 
----
+CONTENT TO SCORE:
 Title: {title}
 Source: {source_name}
 {content_section}
----
 
-Respond with ONLY a JSON object in exactly this format, no explanation:
-{{
-  "relevance_score": <integer 0-100>,
-  "summary": "<2-3 sentence description of what this content covers>",
-  "is_low_density": <true or false>
-}}
+SCORING RULES:
+- Score 80-100: title or content directly matches something in the user's interest list
+- Score 50-79: related to their interests or something they'd plausibly enjoy
+- Score 20-49: tangentially relevant, mildly interesting
+- Score 0-19: completely off-topic, explicitly unwanted (celebrities, political content, pure filler)
+- When only the title is available, score based on the title alone — do not default to 0
+- is_low_density is true ONLY for: reaction clips, highlight reels with no commentary, or videos that are clearly just short clips padded to full length. Substantive sports analysis, gaming content, and educational videos are NOT low density.
 
-Scoring guide:
-- relevance_score: 0=completely irrelevant, 50=somewhat relevant, 100=highly relevant to the user's interests
-- summary: factual 2-3 sentences about what the content covers, not an opinion
-- is_low_density: true if the content is shallow, low-effort, a clip/short repurposed as a full video, pure reaction/entertainment, or otherwise low informational value"""
+Respond with JSON only, no explanation:
+{{"relevance_score": <integer 0-100>, "summary": "<2-3 sentences about what this content covers>", "is_low_density": <true or false>}}"""
 
 
 def _call_ollama(prompt: str) -> str:
@@ -105,7 +104,7 @@ def _call_ollama(prompt: str) -> str:
             "prompt": prompt,
             "format": "json",
             "stream": False,
-            "options": {"temperature": 0.1},
+            "options": {"temperature": 0.3},
         }
     ).encode()
 
