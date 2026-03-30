@@ -13,6 +13,7 @@ Typical run across 100 subscriptions fetching 10 videos each:
 import logging
 import os
 import re
+import time
 
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -46,6 +47,24 @@ def _build_youtube():
     return build("youtube", "v3", credentials=_get_credentials())
 
 
+def _execute_with_retry(request, max_retries: int = 4):
+    """Execute a googleapiclient request, retrying on 429/5xx with backoff."""
+    delay = 2.0
+    for attempt in range(max_retries + 1):
+        try:
+            return request.execute()
+        except HttpError as e:
+            if e.status_code in (429, 500, 503) and attempt < max_retries:
+                logger.warning(
+                    "HTTP %d — retrying in %.0fs (attempt %d/%d)",
+                    e.status_code, delay, attempt + 1, max_retries,
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise
+
+
 def _parse_duration(iso_duration: str) -> int:
     """Parse ISO 8601 duration (e.g. PT5M30S) to total seconds."""
     match = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso_duration or "")
@@ -67,10 +86,9 @@ def sync_subscriptions() -> list[dict]:
     next_page = None
 
     while True:
-        resp = (
+        resp = _execute_with_retry(
             youtube.subscriptions()
             .list(part="snippet", mine=True, maxResults=50, pageToken=next_page)
-            .execute()
         )
         for item in resp.get("items", []):
             snippet = item["snippet"]
@@ -92,10 +110,9 @@ def sync_subscriptions() -> list[dict]:
     uploads_map: dict[str, str] = {}
     for i in range(0, len(channel_ids), 50):
         batch = channel_ids[i : i + 50]
-        resp = (
+        resp = _execute_with_retry(
             youtube.channels()
             .list(part="contentDetails", id=",".join(batch), maxResults=50)
-            .execute()
         )
         for item in resp.get("items", []):
             uploads_map[item["id"]] = item["contentDetails"]["relatedPlaylists"][
@@ -124,10 +141,9 @@ def sync_subscriptions() -> list[dict]:
 
 def _fetch_playlist_video_ids(youtube, playlist_id: str, max_results: int) -> list[str]:
     try:
-        resp = (
+        resp = _execute_with_retry(
             youtube.playlistItems()
             .list(part="contentDetails", playlistId=playlist_id, maxResults=max_results)
-            .execute()
         )
         return [item["contentDetails"]["videoId"] for item in resp.get("items", [])]
     except HttpError as e:
@@ -151,10 +167,9 @@ def fetch_videos(video_ids: list[str]) -> list[dict]:
 
     for i in range(0, len(video_ids), 50):
         batch = video_ids[i : i + 50]
-        resp = (
+        resp = _execute_with_retry(
             youtube.videos()
             .list(part="snippet,contentDetails", id=",".join(batch), maxResults=50)
-            .execute()
         )
         for item in resp.get("items", []):
             snippet = item["snippet"]
