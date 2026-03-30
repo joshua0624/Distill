@@ -91,7 +91,8 @@ SCORING RULES:
 - Score 20-49: tangentially relevant, mildly interesting
 - Score 0-19: completely off-topic, explicitly unwanted (celebrities, political content, pure filler)
 - When only the title is available, score based on the title alone — do not default to 0
-- is_low_density is true ONLY for: reaction clips, highlight reels with no commentary, or videos that are clearly just short clips padded to full length. Substantive sports analysis, gaming content, and educational videos are NOT low density.
+- SPECIFICITY: Match precisely, not by broad category. If the user listed VALORANT and Rocket League, other games (Minecraft, Clash of Clans, etc.) should score 0-20 unless they are clearly relevant. If the user listed Houston Rockets and Miami Dolphins, other sports teams score low.
+- is_low_density is true ONLY for: pure reaction clips, highlight reels with zero commentary, or videos that are clearly short clips padded to full length. Sports analysis, gaming commentary, and educational videos are NOT low density.
 
 Respond with JSON only, no explanation:
 {{"relevance_score": <integer 0-100>, "summary": "<2-3 sentences about what this content covers>", "is_low_density": <true or false>}}"""
