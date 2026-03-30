@@ -1,0 +1,17 @@
+subreddits:
+  # Tech & Programming
+  - programming
+  - Python
+  - MachineLearning
+  - LocalLLaMA
+  - selfhosted
+  - homelab
+
+  # Science & Knowledge
+  - science
+  - askscience
+  - explainlikeimfive
+
+  # Design & Productivity
+  - productivity
+  - ObsidianMD

@@ -1,0 +1,4 @@
+# Feed filtering thresholds
+# Items with a relevance_score below min_relevance_score are hidden from the feed.
+# Unscored items (NULL) always appear until the batch job runs.
+min_relevance_score: 50
