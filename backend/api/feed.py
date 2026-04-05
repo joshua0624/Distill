@@ -36,10 +36,14 @@ def get_feed(limit: int = Query(default=200, le=500)):
             """SELECT id, type, title, source_id, source_name, url, thumbnail_url,
                       description, duration, reddit_score, body,
                       published_at, fetched_at, is_read,
-                      relevance_score, summary, is_low_density, scored_at
+                      relevance_score, summary, is_low_density, scored_at,
+                      is_discovery, discovery_topic
                FROM content_items
                WHERE is_read = 0
-                 AND (relevance_score IS NULL OR relevance_score >= ?)
+                 AND (
+                   (is_discovery = 0 AND (relevance_score IS NULL OR relevance_score >= ?))
+                   OR is_discovery = 1
+                 )
                ORDER BY
                  relevance_score DESC,   -- NULLs sort last in SQLite DESC
                  published_at DESC

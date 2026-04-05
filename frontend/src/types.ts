@@ -17,4 +17,6 @@ export interface ContentItem {
   summary: string | null
   is_low_density: number | null  // 0 | 1 | null
   scored_at: string | null
+  is_discovery: number          // 0 | 1
+  discovery_topic: string | null
 }

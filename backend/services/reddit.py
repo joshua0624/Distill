@@ -94,6 +94,34 @@ def store_posts(posts: list[dict]) -> int:
     return inserted
 
 
+def promote_subreddit(subreddit_name: str) -> bool:
+    """
+    Add a subreddit to subreddits.yaml so it will be fetched on the next run.
+    Returns True if newly added, False if already present.
+    """
+    try:
+        with open(_CONFIG_PATH) as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        data = {}
+
+    subreddits = data.get("subreddits", [])
+    clean = subreddit_name.lower().lstrip("r/")
+
+    if any(s.lower() == clean for s in subreddits):
+        logger.info("r/%s already in whitelist", clean)
+        return False
+
+    subreddits.append(clean)
+    data["subreddits"] = subreddits
+
+    with open(_CONFIG_PATH, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+    logger.info("Promoted r/%s to whitelist", clean)
+    return True
+
+
 def fetch_all_subreddits(limit_per: int = 25) -> int:
     """
     Fetch hot posts from all configured subreddits.

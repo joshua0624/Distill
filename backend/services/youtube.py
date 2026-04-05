@@ -221,6 +221,41 @@ def store_videos(videos: list[dict]) -> int:
     return inserted
 
 
+def promote_channel(channel_id: str, channel_title: str) -> bool:
+    """
+    Add a channel to the local whitelist (channels table) so it will be
+    fetched on the next run. Resolves the uploads playlist ID via the API.
+    Returns True if newly inserted, False if already present.
+    """
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM channels WHERE id = ?", (channel_id,)
+        ).fetchone()
+        if existing:
+            logger.info("Channel %s already in whitelist", channel_id)
+            return False
+
+    youtube = _build_youtube()
+    resp = _execute_with_retry(
+        youtube.channels().list(part="contentDetails", id=channel_id, maxResults=1)
+    )
+    items = resp.get("items", [])
+    uploads_playlist_id = None
+    if items:
+        uploads_playlist_id = items[0]["contentDetails"]["relatedPlaylists"].get("uploads")
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with db() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO channels (id, title, thumbnail_url, uploads_playlist_id, synced_at)
+               VALUES (?, ?, NULL, ?, ?)""",
+            (channel_id, channel_title, uploads_playlist_id, now),
+        )
+
+    logger.info("Promoted channel %s (%s) to whitelist", channel_title, channel_id)
+    return True
+
+
 def fetch_all_channels(max_per_channel: int = 10) -> int:
     """
     Fetch recent videos from every channel stored in the DB.

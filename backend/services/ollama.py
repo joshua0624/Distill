@@ -31,8 +31,20 @@ class ScoreResult(TypedDict):
     is_low_density: bool
 
 
+class QualityResult(TypedDict):
+    quality_score: int
+    summary: str
+    is_low_density: bool
+
+
 _FALLBACK: ScoreResult = {
     "relevance_score": 50,
+    "summary": "",
+    "is_low_density": False,
+}
+
+_QUALITY_FALLBACK: QualityResult = {
+    "quality_score": 50,
     "summary": "",
     "is_low_density": False,
 }
@@ -199,3 +211,162 @@ def score_item(
         raise
 
     return _parse_response(raw)
+
+
+def _build_quality_prompt(
+    title: str,
+    source_name: str,
+    item_type: str,
+    description: str | None,
+    transcript_or_body: str | None,
+) -> str:
+    content_type_label = "YouTube video" if item_type == "video" else "Reddit post"
+
+    if transcript_or_body:
+        content_section = f"Content:\n{transcript_or_body}"
+    elif description:
+        content_section = f"Description:\n{description}"
+    else:
+        content_section = "(Title only — no description or content available.)"
+
+    return f"""You are evaluating a {content_type_label} for quality and substance. Be accurate.
+
+Assess independently of any specific topic — focus on whether it is well-made, educational, or genuinely interesting.
+
+CONTENT:
+Title: {title}
+Source: {source_name}
+{content_section}
+
+QUALITY RULES:
+- Score 80-100: exceptionally educational, in-depth, well-produced, or genuinely thought-provoking
+- Score 60-79: solid content, clear effort, worthwhile
+- Score 40-59: average — neither special nor bad
+- Score 20-39: low-effort, surface-level, clickbait, or padded
+- Score 0-19: spam, pure entertainment filler, or no discernible substance
+
+is_low_density is true ONLY for: pure highlight reels, reaction clips with no commentary, meme content, or clip compilations.
+
+Respond with JSON only, no explanation:
+{{"quality_score": <integer 0-100>, "summary": "<2-3 sentences about what this content covers>", "is_low_density": <true or false>}}"""
+
+
+def _parse_quality_response(raw: str) -> QualityResult:
+    raw = raw.strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
+        if not match:
+            logger.warning("Could not find JSON in quality response: %r", raw[:200])
+            return _QUALITY_FALLBACK
+        try:
+            data = json.loads(match.group())
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse quality JSON from: %r", raw[:200])
+            return _QUALITY_FALLBACK
+
+    score = data.get("quality_score")
+    summary = data.get("summary", "")
+    low_density = data.get("is_low_density", False)
+
+    if not isinstance(score, int):
+        try:
+            score = int(score)
+        except (TypeError, ValueError):
+            score = 50
+
+    score = max(0, min(100, score))
+
+    if not isinstance(summary, str):
+        summary = str(summary)
+
+    return {
+        "quality_score": score,
+        "summary": summary.strip(),
+        "is_low_density": bool(low_density),
+    }
+
+
+def score_discovery_item(
+    *,
+    item_id: str,
+    item_type: str,
+    title: str,
+    source_name: str,
+    description: str | None,
+    transcript_or_body: str | None,
+) -> QualityResult:
+    """
+    Score a discovery item for quality and substance (not topical relevance).
+    Returns a QualityResult dict.
+    """
+    prompt = _build_quality_prompt(
+        title=title,
+        source_name=source_name,
+        item_type=item_type,
+        description=description,
+        transcript_or_body=transcript_or_body,
+    )
+
+    try:
+        raw = _call_ollama(prompt)
+    except urllib.error.URLError as e:
+        logger.error("Ollama unreachable at %s: %s", OLLAMA_HOST, e)
+        raise
+    except TimeoutError:
+        logger.error("Ollama timed out scoring discovery item %s", item_id)
+        raise
+
+    return _parse_quality_response(raw)
+
+
+def extract_topics(content_snippets: list[str]) -> list[str]:
+    """
+    Given a list of content snippets (titles + summaries), use Ollama to
+    extract specific topics/keywords for discovery search.
+    Returns a list of topic strings (may be empty on failure).
+    """
+    if not content_snippets:
+        return []
+
+    joined = "\n".join(f"- {s}" for s in content_snippets[:50])
+
+    prompt = f"""Given these content titles and summaries from items the user has engaged with recently, extract 10-15 specific topics, keywords, or themes suitable for searching for related content.
+
+CONTENT:
+{joined}
+
+Rules:
+- Each topic should be 2-5 words, specific enough to search for
+- Prefer concrete subjects over abstract categories (e.g. "distributed systems consensus" not "technology")
+- No duplicates or near-duplicates
+- Include a mix of narrow and slightly broader topics
+
+Respond with JSON only, no explanation:
+{{"topics": ["topic1", "topic2", ...]}}"""
+
+    try:
+        raw = _call_ollama(prompt)
+    except Exception as e:
+        logger.error("Ollama failed during topic extraction: %s", e)
+        return []
+
+    raw = raw.strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
+        if not match:
+            logger.warning("Could not parse topics from response: %r", raw[:200])
+            return []
+        try:
+            data = json.loads(match.group())
+        except json.JSONDecodeError:
+            return []
+
+    topics = data.get("topics", [])
+    if not isinstance(topics, list):
+        return []
+
+    return [str(t).strip() for t in topics if t and str(t).strip()]

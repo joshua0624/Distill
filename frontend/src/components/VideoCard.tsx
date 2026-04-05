@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ContentItem } from '../types'
-import { markRead } from '../api'
+import { markRead, dismissItem, promoteSource } from '../api'
 import { formatDuration, formatRelativeDate } from '../utils'
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
 export default function VideoCard({ item, onRead }: Props) {
   const [playing, setPlaying] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  const [promoted, setPromoted] = useState(false)
+  const isDiscovery = item.is_discovery === 1
 
   if (dismissed) return null
 
@@ -18,14 +20,36 @@ export default function VideoCard({ item, onRead }: Props) {
 
   const handleDismiss = async () => {
     setDismissed(true)
-    await markRead(item.id).catch(console.error)
+    const action = isDiscovery ? dismissItem : markRead
+    await action(item.id).catch(console.error)
+    onRead(item.id)
+  }
+
+  const handlePromote = async () => {
+    setPromoted(true)
+    await promoteSource(item.id).catch(console.error)
     onRead(item.id)
   }
 
   return (
-    <article className="bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-700 transition-colors">
+    <article className={`bg-slate-900 rounded-xl overflow-hidden border transition-colors ${
+      isDiscovery
+        ? 'border-indigo-900 hover:border-indigo-700'
+        : 'border-slate-800 hover:border-slate-700'
+    }`}>
+      {isDiscovery && (
+        <div className="flex items-center gap-2 px-4 pt-3 pb-0">
+          <span className="text-xs bg-indigo-950 text-indigo-400 border border-indigo-800 rounded px-1.5 py-0.5 font-medium">
+            Discover
+          </span>
+          {item.discovery_topic && (
+            <span className="text-xs text-slate-600 truncate">{item.discovery_topic}</span>
+          )}
+        </div>
+      )}
+
       {playing ? (
-        <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+        <div className="relative w-full mt-3" style={{ paddingBottom: '56.25%' }}>
           <iframe
             className="absolute inset-0 w-full h-full"
             src={`https://www.youtube-nocookie.com/embed/${item.id}?rel=0&modestbranding=1&autoplay=1`}
@@ -37,7 +61,7 @@ export default function VideoCard({ item, onRead }: Props) {
       ) : (
         <button
           onClick={handlePlay}
-          className="relative w-full group cursor-pointer"
+          className={`relative w-full group cursor-pointer ${isDiscovery ? 'mt-3' : ''}`}
           aria-label={`Play ${item.title}`}
         >
           {item.thumbnail_url ? (
@@ -106,6 +130,14 @@ export default function VideoCard({ item, onRead }: Props) {
               className="flex-1 text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg px-3 py-1.5 transition-colors"
             >
               Watch
+            </button>
+          )}
+          {isDiscovery && !promoted && (
+            <button
+              onClick={handlePromote}
+              className="flex-1 text-sm bg-indigo-950 hover:bg-indigo-900 text-indigo-300 rounded-lg px-3 py-1.5 transition-colors"
+            >
+              Add to feed
             </button>
           )}
           <button

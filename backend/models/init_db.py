@@ -37,12 +37,24 @@ CREATE TABLE IF NOT EXISTS content_items (
     -- Phase 2: LLM scoring fields (nullable until batch runs)
     relevance_score INTEGER,
     summary         TEXT,
-    is_low_density  INTEGER
+    is_low_density  INTEGER,
+    scored_at       TEXT,
+    transcript      TEXT,
+    -- Phase 3: discovery fields
+    is_discovery    INTEGER NOT NULL DEFAULT 0,
+    discovery_topic TEXT
+);
+
+CREATE TABLE IF NOT EXISTS discovery_topics (
+    topic        TEXT PRIMARY KEY,
+    last_used_at TEXT NOT NULL,
+    use_count    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_type        ON content_items(type);
 CREATE INDEX IF NOT EXISTS idx_items_is_read     ON content_items(is_read);
 CREATE INDEX IF NOT EXISTS idx_items_published   ON content_items(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_items_discovery   ON content_items(is_discovery);
 """
 
 

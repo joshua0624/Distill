@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ContentItem } from '../types'
-import { markRead } from '../api'
+import { markRead, dismissItem, promoteSource } from '../api'
 import { formatRelativeDate } from '../utils'
 
 interface Props {
@@ -10,12 +10,21 @@ interface Props {
 
 export default function PostCard({ item, onRead }: Props) {
   const [dismissed, setDismissed] = useState(false)
+  const [promoted, setPromoted] = useState(false)
+  const isDiscovery = item.is_discovery === 1
 
   if (dismissed) return null
 
   const handleDismiss = async () => {
     setDismissed(true)
-    await markRead(item.id).catch(console.error)
+    const action = isDiscovery ? dismissItem : markRead
+    await action(item.id).catch(console.error)
+    onRead(item.id)
+  }
+
+  const handlePromote = async () => {
+    setPromoted(true)
+    await promoteSource(item.id).catch(console.error)
     onRead(item.id)
   }
 
@@ -27,7 +36,22 @@ export default function PostCard({ item, onRead }: Props) {
       : null
 
   return (
-    <article className="bg-slate-900 rounded-xl border border-slate-800 hover:border-slate-700 transition-colors p-4">
+    <article className={`bg-slate-900 rounded-xl border transition-colors p-4 ${
+      isDiscovery
+        ? 'border-indigo-900 hover:border-indigo-700'
+        : 'border-slate-800 hover:border-slate-700'
+    }`}>
+      {isDiscovery && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs bg-indigo-950 text-indigo-400 border border-indigo-800 rounded px-1.5 py-0.5 font-medium">
+            Discover
+          </span>
+          {item.discovery_topic && (
+            <span className="text-xs text-slate-600 truncate">{item.discovery_topic}</span>
+          )}
+        </div>
+      )}
+
       <div className="flex gap-3">
         {item.thumbnail_url && (
           <img
@@ -95,6 +119,14 @@ export default function PostCard({ item, onRead }: Props) {
         >
           Open thread
         </a>
+        {isDiscovery && !promoted && (
+          <button
+            onClick={handlePromote}
+            className="flex-1 text-sm bg-indigo-950 hover:bg-indigo-900 text-indigo-300 rounded-lg px-3 py-1.5 transition-colors"
+          >
+            Add to feed
+          </button>
+        )}
         <button
           onClick={handleDismiss}
           className="flex-1 text-sm bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg px-3 py-1.5 transition-colors"
