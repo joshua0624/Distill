@@ -1,1 +1,58 @@
 @import "tailwindcss";
+
+:root {
+  --bg: #f5f5f3;
+  --surface: #ffffff;
+  --surface-2: #f0efed;
+  --surface-3: #e8e7e4;
+  --border: rgba(0, 0, 0, 0.07);
+  --text: #1a1a1a;
+  --text-2: #6b6b6b;
+  --text-3: #9a9a9a;
+  --accent: #5a8a6a;
+  --accent-soft: rgba(90, 138, 106, 0.09);
+  --badge-yt: #dc2626;
+  --badge-reddit: #ea580c;
+  --badge-discover: #6366f1;
+  --header-bg: rgba(245, 245, 243, 0.82);
+  --tab-inactive: #9a9a9a;
+  --save-bg: rgba(0, 0, 0, 0.04);
+  --save-active: #5a8a6a;
+  --tier-label: #b0ada8;
+}
+
+.dark {
+  --bg: #0c0c0c;
+  --surface: #161616;
+  --surface-2: #1e1e1e;
+  --surface-3: #282828;
+  --border: rgba(255, 255, 255, 0.07);
+  --text: #e8e8e8;
+  --text-2: #9a9a9a;
+  --text-3: #5e5e5e;
+  --accent: #7db88e;
+  --accent-soft: rgba(125, 184, 142, 0.1);
+  --badge-yt: #ef4444;
+  --badge-reddit: #f97316;
+  --badge-discover: #818cf8;
+  --header-bg: rgba(12, 12, 12, 0.82);
+  --tab-inactive: #5e5e5e;
+  --save-bg: rgba(255, 255, 255, 0.05);
+  --save-active: #7db88e;
+  --tier-label: #444444;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', 'Helvetica Neue', sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

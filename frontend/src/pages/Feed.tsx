@@ -1,107 +1,229 @@
-import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { ContentItem } from '../types'
-import { fetchFeed } from '../api'
 import VideoCard from '../components/VideoCard'
 import PostCard from '../components/PostCard'
 
-type Status = 'loading' | 'error' | 'ready'
+type Tab = 'feed' | 'discover' | 'saved'
 
-export default function Feed() {
-  const [items, setItems] = useState<ContentItem[]>([])
-  const [status, setStatus] = useState<Status>('loading')
-  const [readIds, setReadIds] = useState<Set<string>>(new Set())
+interface FeedViewProps {
+  tab: Tab
+  feedItems: ContentItem[]
+  discoverItems: ContentItem[]
+  savedItems: ContentItem[]
+  onDismissFeed: (id: string) => void
+  onDismissDiscover: (id: string) => void
+  onAddToFeed: (id: string) => void
+  onToggleSave: (item: ContentItem) => void
+  onRemoveSaved: (id: string) => void
+}
 
-  useEffect(() => {
-    fetchFeed()
-      .then((data) => {
-        setItems(data)
-        setStatus('ready')
-      })
-      .catch(() => setStatus('error'))
-  }, [])
+// ─── Section divider ───
+function TierDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-4">
+      <span
+        className="text-[11px] font-bold tracking-[0.07em] uppercase whitespace-nowrap"
+        style={{ color: 'var(--tier-label)' }}
+      >
+        {label}
+      </span>
+      <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+    </div>
+  )
+}
 
-  const handleRead = (id: string) => {
-    setReadIds((prev) => new Set([...prev, id]))
-  }
-
-  const visibleItems = items.filter((item) => !readIds.has(item.id))
-
-  if (status === 'loading') {
-    return (
-      <div className="flex flex-col gap-4">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden animate-pulse"
-          >
-            <div className="w-full aspect-video bg-slate-800" />
-            <div className="p-4 space-y-2">
-              <div className="h-4 bg-slate-800 rounded w-3/4" />
-              <div className="h-3 bg-slate-800 rounded w-1/2" />
-            </div>
-          </div>
-        ))}
+// ─── Empty state ───
+function EmptyState({ icon, title, subtitle }: { icon: ReactNode; title: string; subtitle: string }) {
+  return (
+    <div className="text-center py-20 px-5">
+      <div
+        className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5"
+        style={{ background: 'var(--surface-3)', color: 'var(--accent)' }}
+      >
+        {icon}
       </div>
-    )
-  }
+      <h2 className="text-[19px] font-semibold mb-2" style={{ color: 'var(--text)' }}>
+        {title}
+      </h2>
+      <p className="text-[13px] leading-[21px]" style={{ color: 'var(--text-3)' }}>
+        {subtitle}
+      </p>
+    </div>
+  )
+}
 
-  if (status === 'error') {
-    return (
-      <div className="text-center py-20 text-slate-500">
-        <p className="text-lg font-medium text-slate-400">Unable to load feed</p>
-        <p className="text-sm mt-1">Make sure the backend is running.</p>
-        <button
-          onClick={() => {
-            setStatus('loading')
-            fetchFeed()
-              .then((data) => { setItems(data); setStatus('ready') })
-              .catch(() => setStatus('error'))
-          }}
-          className="mt-4 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          Try again
-        </button>
-      </div>
-    )
-  }
+// ─── Card renderer ───
+function Card({
+  item,
+  onDismiss,
+  onSave,
+  onAddToFeed,
+}: {
+  item: ContentItem
+  onDismiss: () => void
+  onSave: () => void
+  onAddToFeed?: () => void
+}) {
+  return item.type === 'video' ? (
+    <VideoCard item={item} onDismiss={onDismiss} onSave={onSave} onAddToFeed={onAddToFeed} />
+  ) : (
+    <PostCard item={item} onDismiss={onDismiss} onSave={onSave} onAddToFeed={onAddToFeed} />
+  )
+}
 
-  if (visibleItems.length === 0) {
-    return (
-      <div className="text-center py-24">
-        <div className="text-4xl mb-4">✓</div>
-        <p className="text-xl font-semibold text-slate-200">You're caught up</p>
-        <p className="text-sm text-slate-500 mt-2">
-          {items.length === 0
-            ? 'No content yet — run the fetch job to populate the feed.'
-            : 'All items read. New content fetches twice daily.'}
-        </p>
-      </div>
-    )
-  }
-
-  const unreadCount = visibleItems.length
+// ─── Tiered list (Top Picks ≥90, Everything Else <90) ───
+function TieredList({
+  items,
+  onDismiss,
+  onSave,
+  onAddToFeed,
+}: {
+  items: ContentItem[]
+  onDismiss: (id: string) => void
+  onSave: (item: ContentItem) => void
+  onAddToFeed?: (id: string) => void
+}) {
+  const top = items.filter((i) => i.relevance_score !== null && i.relevance_score >= 90)
+  const rest = items.filter((i) => i.relevance_score === null || i.relevance_score < 90)
 
   return (
-    <div>
-      <p className="text-xs text-slate-600 mb-4">
-        {unreadCount} unread item{unreadCount !== 1 ? 's' : ''}
-      </p>
-
-      <div className="flex flex-col gap-4">
-        {visibleItems.map((item) =>
-          item.type === 'video' ? (
-            <VideoCard key={item.id} item={item} onRead={handleRead} />
-          ) : (
-            <PostCard key={item.id} item={item} onRead={handleRead} />
-          )
-        )}
-      </div>
-
-      {unreadCount > 0 && (
-        <div className="mt-8 text-center text-xs text-slate-700">
-          — {unreadCount} item{unreadCount !== 1 ? 's' : ''} remaining —
+    <>
+      {top.length > 0 && (
+        <div className={rest.length > 0 ? 'mb-8' : ''}>
+          <TierDivider label="Top picks" />
+          <div className="flex flex-col gap-3.5">
+            {top.map((item) => (
+              <Card
+                key={item.id}
+                item={item}
+                onDismiss={() => onDismiss(item.id)}
+                onSave={() => onSave(item)}
+                onAddToFeed={onAddToFeed ? () => onAddToFeed(item.id) : undefined}
+              />
+            ))}
+          </div>
         </div>
       )}
-    </div>
+      {rest.length > 0 && (
+        <>
+          <TierDivider label={top.length > 0 ? 'Everything else' : `${rest.length} items`} />
+          <div className="flex flex-col gap-3.5">
+            {rest.map((item) => (
+              <Card
+                key={item.id}
+                item={item}
+                onDismiss={() => onDismiss(item.id)}
+                onSave={() => onSave(item)}
+                onAddToFeed={onAddToFeed ? () => onAddToFeed(item.id) : undefined}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+// ─── Icons for empty states ───
+const CheckIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+)
+const CompassIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <circle cx="12" cy="12" r="10" />
+    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+  </svg>
+)
+const ClockIcon = () => (
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+)
+
+// ─── Main export ───
+export default function FeedView({
+  tab,
+  feedItems,
+  discoverItems,
+  savedItems,
+  onDismissFeed,
+  onDismissDiscover,
+  onAddToFeed,
+  onToggleSave,
+  onRemoveSaved,
+}: FeedViewProps) {
+  if (tab === 'feed') {
+    if (feedItems.length === 0) {
+      return (
+        <EmptyState
+          icon={<CheckIcon />}
+          title="You're caught up"
+          subtitle="New content is fetched twice daily."
+        />
+      )
+    }
+    return (
+      <TieredList
+        items={feedItems}
+        onDismiss={onDismissFeed}
+        onSave={onToggleSave}
+      />
+    )
+  }
+
+  if (tab === 'discover') {
+    if (discoverItems.length === 0) {
+      return (
+        <EmptyState
+          icon={<CompassIcon />}
+          title="No discoveries right now"
+          subtitle="The LLM will surface new content outside your subscriptions soon."
+        />
+      )
+    }
+    return (
+      <>
+        <p className="text-xs mb-[22px] leading-[18px]" style={{ color: 'var(--text-3)' }}>
+          Content surfaced by the LLM from outside your subscriptions.
+        </p>
+        <TieredList
+          items={discoverItems}
+          onDismiss={onDismissDiscover}
+          onSave={onToggleSave}
+          onAddToFeed={onAddToFeed}
+        />
+      </>
+    )
+  }
+
+  // saved tab
+  if (savedItems.length === 0) {
+    return (
+      <EmptyState
+        icon={<ClockIcon />}
+        title="Nothing saved yet"
+        subtitle="Bookmark items from your feed or discoveries to save them here."
+      />
+    )
+  }
+  return (
+    <>
+      <p className="text-xs mb-[22px] font-medium" style={{ color: 'var(--text-3)' }}>
+        {savedItems.length} saved {savedItems.length === 1 ? 'item' : 'items'}
+      </p>
+      <div className="flex flex-col gap-3.5">
+        {savedItems.map((item) => (
+          <Card
+            key={item.id}
+            item={item}
+            onDismiss={() => onRemoveSaved(item.id)}
+            onSave={() => onToggleSave(item)}
+          />
+        ))}
+      </div>
+    </>
   )
 }

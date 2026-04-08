@@ -1,138 +1,134 @@
-import { useState } from 'react'
 import type { ContentItem } from '../types'
-import { markRead, dismissItem, promoteSource } from '../api'
 import { formatRelativeDate } from '../utils'
+import Btn from './Btn'
 
 interface Props {
   item: ContentItem
-  onRead: (id: string) => void
+  onDismiss: () => void
+  onSave: () => void
+  onAddToFeed?: () => void
 }
 
-export default function PostCard({ item, onRead }: Props) {
-  const [dismissed, setDismissed] = useState(false)
-  const [promoted, setPromoted] = useState(false)
+const LinkIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    <polyline points="15 3 21 3 21 9" />
+    <line x1="10" y1="14" x2="21" y2="3" />
+  </svg>
+)
+
+const PlusIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+)
+
+const BookmarkIcon = ({ filled }: { filled: boolean }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+  </svg>
+)
+
+export default function PostCard({ item, onDismiss, onSave, onAddToFeed }: Props) {
   const isDiscovery = item.is_discovery === 1
-
-  if (dismissed) return null
-
-  const handleDismiss = async () => {
-    setDismissed(true)
-    const action = isDiscovery ? dismissItem : markRead
-    await action(item.id).catch(console.error)
-    onRead(item.id)
-  }
-
-  const handlePromote = async () => {
-    setPromoted(true)
-    await promoteSource(item.id).catch(console.error)
-    onRead(item.id)
-  }
-
-  const score =
-    item.reddit_score !== null
-      ? item.reddit_score >= 1000
-        ? `${(item.reddit_score / 1000).toFixed(1)}k`
-        : String(item.reddit_score)
-      : null
+  const isSaved = item.is_saved === 1
 
   return (
-    <article className={`bg-slate-900 rounded-xl border transition-colors p-4 ${
-      isDiscovery
-        ? 'border-indigo-900 hover:border-indigo-700'
-        : 'border-slate-800 hover:border-slate-700'
-    }`}>
-      {isDiscovery && (
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs bg-indigo-950 text-indigo-400 border border-indigo-800 rounded px-1.5 py-0.5 font-medium">
-            Discover
-          </span>
-          {item.discovery_topic && (
-            <span className="text-xs text-slate-600 truncate">{item.discovery_topic}</span>
-          )}
-        </div>
-      )}
-
-      <div className="flex gap-3">
-        {item.thumbnail_url && (
-          <img
-            src={item.thumbnail_url}
-            alt=""
-            className="w-16 h-16 rounded-lg object-cover shrink-0 self-start"
-          />
-        )}
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-2">
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-slate-100 leading-snug hover:text-blue-400 transition-colors line-clamp-3"
-            >
-              {item.title}
-            </a>
-            {item.is_low_density === 1 && (
-              <span className="shrink-0 text-xs bg-yellow-950 text-yellow-500 border border-yellow-900 rounded px-1.5 py-0.5 font-medium">
-                low density
-              </span>
-            )}
-          </div>
-
-          {item.summary ? (
-            <p className="mt-1.5 text-sm text-slate-400 leading-relaxed line-clamp-2">
-              {item.summary}
-            </p>
-          ) : item.body ? (
-            <p className="mt-1.5 text-sm text-slate-400 leading-relaxed line-clamp-2">
-              {item.body}
-            </p>
-          ) : !item.scored_at ? (
-            <p className="mt-1.5 text-xs text-slate-600 italic">scoring pending…</p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-500">
-        <span className="flex items-center gap-2 min-w-0">
-          <span className="shrink-0 bg-orange-950 text-orange-400 rounded px-1.5 py-0.5 font-medium">
-            r/
-          </span>
-          <span className="truncate">{item.source_name}</span>
-          {score !== null && (
-            <span className="shrink-0 text-slate-500">↑{score}</span>
-          )}
-        </span>
-        <span className="flex items-center gap-2 shrink-0">
-          {item.relevance_score !== null && (
-            <span className="text-slate-600">{item.relevance_score}%</span>
-          )}
-          <span>{formatRelativeDate(item.published_at)}</span>
-        </span>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <a
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 text-center text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg px-3 py-1.5 transition-colors"
-        >
-          Open thread
-        </a>
-        {isDiscovery && !promoted && (
-          <button
-            onClick={handlePromote}
-            className="flex-1 text-sm bg-indigo-950 hover:bg-indigo-900 text-indigo-300 rounded-lg px-3 py-1.5 transition-colors"
+    <article
+      className="rounded-[18px] p-[18px]"
+      style={{
+        background: 'var(--surface)',
+        border: `1px solid ${isDiscovery ? 'var(--badge-discover)' : 'var(--border)'}`,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+      }}
+    >
+      {/* Meta row */}
+      <div className="flex items-center gap-1.5 mb-[6px]" style={{ flexWrap: 'nowrap' }}>
+        {isDiscovery && item.discovery_topic && (
+          <span
+            className="text-[10px] font-bold px-[7px] py-px rounded-md leading-4 whitespace-nowrap flex-shrink-0"
+            style={{
+              color: 'var(--badge-discover)',
+              background: 'color-mix(in srgb, var(--badge-discover) 10%, transparent)',
+            }}
           >
-            Add to feed
-          </button>
+            {item.discovery_topic}
+          </span>
         )}
-        <button
-          onClick={handleDismiss}
-          className="flex-1 text-sm bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg px-3 py-1.5 transition-colors"
+        <span
+          className="inline-flex items-center px-2 py-px rounded-md text-[11px] font-semibold leading-[18px] flex-shrink-0"
+          style={{ background: 'var(--badge-reddit)', color: '#fff' }}
         >
-          Dismiss
-        </button>
+          r/
+        </span>
+        <span className="text-[11px] truncate" style={{ color: 'var(--text-2)' }}>
+          {item.source_name}
+        </span>
+        {item.reddit_score !== null && (
+          <span className="text-[11px] flex-shrink-0" style={{ color: 'var(--text-3)' }}>
+            · {item.reddit_score.toLocaleString()}
+          </span>
+        )}
+        <span className="text-[11px] ml-auto flex-shrink-0 pl-2" style={{ color: 'var(--text-3)' }}>
+          {formatRelativeDate(item.published_at)}
+        </span>
+      </div>
+
+      {/* Title */}
+      <h3
+        className="text-sm font-semibold leading-snug line-clamp-3 mb-[5px]"
+        style={{ color: 'var(--text)', margin: 0, marginBottom: 5 }}
+      >
+        {item.title}
+      </h3>
+
+      {/* Summary */}
+      {item.summary ? (
+        <p
+          className="text-[12.5px] leading-[19px] line-clamp-2 mb-3"
+          style={{ color: 'var(--text-2)', margin: '0 0 12px' }}
+        >
+          {item.summary}
+        </p>
+      ) : item.body ? (
+        <p
+          className="text-[12.5px] leading-[19px] line-clamp-2 mb-3"
+          style={{ color: 'var(--text-2)', margin: '0 0 12px' }}
+        >
+          {item.body}
+        </p>
+      ) : !item.scored_at ? (
+        <p className="text-xs italic mb-3" style={{ color: 'var(--text-3)', margin: '0 0 12px' }}>
+          scoring pending…
+        </p>
+      ) : null}
+
+      {/* Actions */}
+      <div className="flex items-center justify-between gap-2.5">
+        <div className="flex gap-1.5 flex-wrap">
+          <Btn variant="primary" icon={<LinkIcon />} onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}>
+            Open thread
+          </Btn>
+          {isDiscovery && onAddToFeed && (
+            <Btn variant="discover" icon={<PlusIcon />} onClick={onAddToFeed}>
+              Add to feed
+            </Btn>
+          )}
+          <Btn variant={isSaved ? 'saveActive' : 'save'} icon={<BookmarkIcon filled={isSaved} />} onClick={onSave}>
+            {isSaved ? 'Saved' : 'Save'}
+          </Btn>
+          <Btn variant="ghost" onClick={onDismiss}>
+            Dismiss
+          </Btn>
+        </div>
+        {item.relevance_score !== null && (
+          <span
+            className="text-xs font-bold flex-shrink-0"
+            style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}
+          >
+            {item.relevance_score}%
+          </span>
+        )}
       </div>
     </article>
   )

@@ -19,4 +19,5 @@ export interface ContentItem {
   scored_at: string | null
   is_discovery: number          // 0 | 1
   discovery_topic: string | null
+  is_saved: number              // 0 | 1
 }

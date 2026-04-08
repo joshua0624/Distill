@@ -6,6 +6,12 @@ export async function fetchFeed(): Promise<ContentItem[]> {
   return res.json()
 }
 
+export async function fetchSaved(): Promise<ContentItem[]> {
+  const res = await fetch('/api/saved')
+  if (!res.ok) throw new Error(`Failed to fetch saved: ${res.status}`)
+  return res.json()
+}
+
 export async function markRead(id: string): Promise<void> {
   const res = await fetch(`/api/items/${encodeURIComponent(id)}/read`, {
     method: 'POST',
@@ -25,4 +31,18 @@ export async function promoteSource(id: string): Promise<void> {
     method: 'POST',
   })
   if (!res.ok) throw new Error(`Failed to promote source: ${res.status}`)
+}
+
+export async function saveItem(id: string): Promise<void> {
+  const res = await fetch(`/api/items/${encodeURIComponent(id)}/save`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(`Failed to save item: ${res.status}`)
+}
+
+export async function unsaveItem(id: string): Promise<void> {
+  const res = await fetch(`/api/items/${encodeURIComponent(id)}/unsave`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(`Failed to unsave item: ${res.status}`)
 }
