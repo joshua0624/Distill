@@ -59,6 +59,7 @@ def run():
             transcript = fetch_transcript(item_id)
             if transcript:
                 logger.debug("  Transcript: %d words", len(transcript.split()))
+                time.sleep(1.5)  # avoid YouTube transcript throttling
             else:
                 logger.debug("  No transcript available")
 
