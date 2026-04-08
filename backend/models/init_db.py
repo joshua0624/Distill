@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS content_items (
     transcript      TEXT,
     -- Phase 3: discovery fields
     is_discovery    INTEGER NOT NULL DEFAULT 0,
-    discovery_topic TEXT
+    discovery_topic TEXT,
+    -- Phase 3 (UI rework): watch later
+    is_saved        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS discovery_topics (

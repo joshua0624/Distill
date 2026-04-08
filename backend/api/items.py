@@ -42,6 +42,28 @@ def dismiss_item(item_id: str):
     return {"ok": True}
 
 
+@router.post("/{item_id}/save")
+def save_item(item_id: str):
+    with db() as conn:
+        result = conn.execute(
+            "UPDATE content_items SET is_saved = 1 WHERE id = ?", (item_id,)
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Item not found")
+    return {"ok": True}
+
+
+@router.post("/{item_id}/unsave")
+def unsave_item(item_id: str):
+    with db() as conn:
+        result = conn.execute(
+            "UPDATE content_items SET is_saved = 0 WHERE id = ?", (item_id,)
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Item not found")
+    return {"ok": True}
+
+
 @router.post("/{item_id}/promote")
 def promote_source(item_id: str):
     """

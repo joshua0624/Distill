@@ -37,7 +37,7 @@ def get_feed(limit: int = Query(default=200, le=500)):
                       description, duration, reddit_score, body,
                       published_at, fetched_at, is_read,
                       relevance_score, summary, is_low_density, scored_at,
-                      is_discovery, discovery_topic
+                      is_discovery, discovery_topic, is_saved
                FROM content_items
                WHERE is_read = 0
                  AND (
@@ -49,6 +49,23 @@ def get_feed(limit: int = Query(default=200, le=500)):
                  published_at DESC
                LIMIT ?""",
             (threshold, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@router.get("/saved")
+def get_saved():
+    """Return all saved items regardless of read state, newest first."""
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT id, type, title, source_id, source_name, url, thumbnail_url,
+                      description, duration, reddit_score, body,
+                      published_at, fetched_at, is_read,
+                      relevance_score, summary, is_low_density, scored_at,
+                      is_discovery, discovery_topic, is_saved
+               FROM content_items
+               WHERE is_saved = 1
+               ORDER BY published_at DESC""",
         ).fetchall()
     return [dict(row) for row in rows]
 
