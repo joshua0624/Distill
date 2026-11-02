@@ -1,10 +1,15 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Home from './pages/Home'
 import Triage from './pages/Triage'
 import Channels from './pages/Channels'
+import Watch from './pages/Watch'
+import Later from './pages/Later'
+import History from './pages/History'
 
 const NAV = [
   { to: '/', label: 'Home', icon: 'M4 10.5 12 4l8 6.5V20h-5v-6H9v6H4z' },
+  { to: '/later', label: 'Later', icon: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z' },
+  { to: '/history', label: 'History', icon: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 8v4l3 2' },
   { to: '/triage', label: 'Triage', icon: 'M4 6h16M4 12h10M4 18h6M17 14l3 3-3 3' },
   { to: '/channels', label: 'Channels', icon: 'M4 5h16v11H4zM8 20h8M12 16v4' },
 ]
@@ -19,6 +24,8 @@ function Icon({ d }: { d: string }) {
 }
 
 export default function App() {
+  // Like YouTube, the watch page drops the side nav to give the player room.
+  const watching = useLocation().pathname.startsWith('/watch/')
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-20 flex h-14 items-center gap-2 bg-bg px-4">
@@ -29,7 +36,7 @@ export default function App() {
       </header>
 
       <div className="flex flex-1">
-        <nav className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-56 shrink-0 flex-col gap-1 px-3 py-2 md:flex">
+        <nav className={`sticky top-14 hidden h-[calc(100vh-3.5rem)] w-56 shrink-0 flex-col gap-1 px-3 py-2 ${watching ? '' : 'md:flex'}`}>
           {NAV.map(n => (
             <NavLink key={n.to} to={n.to} end
               className={({ isActive }) =>
@@ -45,6 +52,9 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/triage" element={<Triage />} />
             <Route path="/channels" element={<Channels />} />
+            <Route path="/watch/:id" element={<Watch />} />
+            <Route path="/later" element={<Later />} />
+            <Route path="/history" element={<History />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

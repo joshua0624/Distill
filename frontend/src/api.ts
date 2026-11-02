@@ -46,6 +46,14 @@ export interface FeedVideo {
   channel_id: string
   channel_title: string
   channel_thumb: string | null
+  position_s: number | null
+  watched_pct: number | null
+  last_watched_at: string | null
+  in_queue: number
+}
+
+export interface VideoDetail extends FeedVideo {
+  description: string | null
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -59,13 +67,32 @@ export const api = {
   triageNext: (limit = 20) => get<TriageChannel[]>(`/api/triage/next?limit=${limit}`),
   preview: (id: string) => get<Preview>(`/api/channels/${id}/preview`),
   channels: (tier?: Tier) => get<Channel[]>(`/api/channels${tier ? `?tier=${tier}` : ''}`),
-  feed: () => get<FeedVideo[]>('/api/feed'),
-  setTier: async (id: string, tier: Tier, reviewed = true) => {
-    const r = await fetch(`/api/channels/${id}/tier`, {
-      method: 'POST',
+  feed: (offset = 0, limit = 48) => get<FeedVideo[]>(`/api/feed?limit=${limit}&offset=${offset}`),
+  video: (id: string) => get<VideoDetail>(`/api/videos/${id}`),
+  history: () => get<FeedVideo[]>('/api/history'),
+  queue: () => get<FeedVideo[]>('/api/queue'),
+  addToQueue: (id: string) => send('POST', `/api/queue/${id}`),
+  removeFromQueue: (id: string) => send('DELETE', `/api/queue/${id}`),
+  reorderQueue: (ids: string[]) => send('PUT', '/api/queue', { ids }),
+  saveProgress: (id: string, position_s: number, duration_s: number) =>
+    send('PUT', `/api/progress/${id}`, { position_s, duration_s }),
+  /** Fire-and-forget save that survives the page closing. */
+  saveProgressOnExit: (id: string, position_s: number, duration_s: number) =>
+    fetch(`/api/progress/${id}`, {
+      method: 'PUT',
+      keepalive: true,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier, reviewed }),
-    })
-    if (!r.ok) throw new Error(`setTier: ${r.status}`)
-  },
+      body: JSON.stringify({ position_s, duration_s }),
+    }),
+  setTier: (id: string, tier: Tier, reviewed = true) =>
+    send('POST', `/api/channels/${id}/tier`, { tier, reviewed }),
+}
+
+async function send(method: string, path: string, body?: unknown): Promise<void> {
+  const r = await fetch(path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (!r.ok) throw new Error(`${method} ${path}: ${r.status}`)
 }

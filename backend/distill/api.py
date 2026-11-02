@@ -108,16 +108,102 @@ def list_channels(tier: str | None = None, conn: sqlite3.Connection = Conn):
     return [dict(r) for r in conn.execute(sql + " ORDER BY rank DESC, title", params)]
 
 
+# Everything a video card needs, including watch progress and queue state.
+CARD_SQL = """
+    SELECT v.id, v.title, v.published_at, v.duration_s, v.views, v.thumb_url,
+           c.id AS channel_id, c.title AS channel_title, c.thumb_url AS channel_thumb,
+           p.position_s, p.watched_pct, p.last_watched_at, q.video_id IS NOT NULL AS in_queue
+    FROM videos v
+    JOIN channels c ON c.id = v.channel_id
+    LEFT JOIN progress p ON p.video_id = v.id
+    LEFT JOIN queue q ON q.video_id = v.id
+"""
+
+
 @app.get("/api/feed")
 def feed(limit: int = 60, offset: int = 0, conn: sqlite3.Connection = Conn):
     rows = conn.execute(
-        "SELECT v.id, v.title, v.published_at, v.duration_s, v.views, v.thumb_url, "
-        "c.id AS channel_id, c.title AS channel_title, c.thumb_url AS channel_thumb, d.reason "
-        "FROM videos v JOIN decisions d ON d.video_id = v.id JOIN channels c ON c.id = v.channel_id "
+        CARD_SQL + " JOIN decisions d ON d.video_id = v.id "
         "WHERE d.visible = 1 ORDER BY v.published_at DESC LIMIT ? OFFSET ?",
         (limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/videos/{video_id}")
+def video(video_id: str, conn: sqlite3.Connection = Conn):
+    row = conn.execute(
+        CARD_SQL.replace("SELECT ", "SELECT v.description, ", 1) + " WHERE v.id = ?", (video_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(404)
+    return dict(row)
+
+
+class Progress(BaseModel):
+    position_s: float
+    duration_s: float
+
+
+@app.put("/api/progress/{video_id}")
+def save_progress(video_id: str, body: Progress, conn: sqlite3.Connection = Conn):
+    if not conn.execute("SELECT 1 FROM videos WHERE id = ?", (video_id,)).fetchone():
+        raise HTTPException(404)
+    pct = min(100.0, 100 * body.position_s / body.duration_s) if body.duration_s > 0 else 0
+    conn.execute(
+        "INSERT INTO progress (video_id, position_s, watched_pct) VALUES (?, ?, ?) "
+        "ON CONFLICT(video_id) DO UPDATE SET position_s = excluded.position_s, "
+        "watched_pct = MAX(progress.watched_pct, excluded.watched_pct), "
+        "last_watched_at = datetime('now')",
+        (video_id, body.position_s, pct),
+    )
+    return {"ok": True}
+
+
+@app.get("/api/history")
+def history(limit: int = 100, conn: sqlite3.Connection = Conn):
+    rows = conn.execute(
+        CARD_SQL + " WHERE p.video_id IS NOT NULL ORDER BY p.last_watched_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/queue")
+def get_queue(conn: sqlite3.Connection = Conn):
+    return [dict(r) for r in conn.execute(CARD_SQL + " WHERE q.video_id IS NOT NULL ORDER BY q.position")]
+
+
+@app.post("/api/queue/{video_id}")
+def add_to_queue(video_id: str, conn: sqlite3.Connection = Conn):
+    if not conn.execute("SELECT 1 FROM videos WHERE id = ?", (video_id,)).fetchone():
+        raise HTTPException(404)
+    conn.execute(
+        "INSERT OR IGNORE INTO queue (video_id, position) "
+        "VALUES (?, (SELECT COALESCE(MAX(position), 0) + 1 FROM queue))",
+        (video_id,),
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/queue/{video_id}")
+def remove_from_queue(video_id: str, conn: sqlite3.Connection = Conn):
+    conn.execute("DELETE FROM queue WHERE video_id = ?", (video_id,))
+    return {"ok": True}
+
+
+class QueueOrder(BaseModel):
+    ids: list[str]
+
+
+@app.put("/api/queue")
+def reorder_queue(body: QueueOrder, conn: sqlite3.Connection = Conn):
+    """Set the order; ids not listed keep their relative order after the listed ones."""
+    current = [r[0] for r in conn.execute("SELECT video_id FROM queue ORDER BY position")]
+    listed = [i for i in body.ids if i in current]
+    order = listed + [i for i in current if i not in listed]
+    conn.executemany("UPDATE queue SET position = ? WHERE video_id = ?",
+                     [(n, vid) for n, vid in enumerate(order, 1)])
+    return {"ok": True}
 
 
 @app.get("/api/hidden")

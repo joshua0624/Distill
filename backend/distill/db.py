@@ -67,6 +67,19 @@ CREATE TABLE IF NOT EXISTS takeout_history (
     PRIMARY KEY (video_id, watched_at)
 );
 CREATE INDEX IF NOT EXISTS idx_history_channel ON takeout_history(channel_id, watched_at);
+
+CREATE TABLE IF NOT EXISTS progress (
+    video_id         TEXT PRIMARY KEY REFERENCES videos(id),
+    position_s       REAL NOT NULL,
+    watched_pct      REAL NOT NULL,           -- furthest point reached, 0-100
+    last_watched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS queue (
+    video_id    TEXT PRIMARY KEY REFERENCES videos(id),
+    position    REAL NOT NULL,                -- sort key; reorder rewrites 1..n
+    added_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

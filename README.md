@@ -2,7 +2,7 @@
 
 A personal YouTube front page: trusted channels, filtered mixed channels, no Shorts, no recommendation sidebar. See [docs/v1-spec.md](docs/v1-spec.md).
 
-**Status:** M1 — Takeout import, channel triage, RSS ingest with hard rules.
+**Status:** M2 — Takeout import, channel triage, RSS ingest with hard rules, watch page with Watch later queue, resume and history.
 
 ## Setup
 
