@@ -1,6 +1,7 @@
 """HTTP API for the frontend. Run with `distill serve`."""
 import logging
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -29,21 +30,49 @@ def get_conn():
 Conn = Depends(get_conn)
 
 
+# A channel with this many recent watches is already near the top of the normal queue.
+REDISCOVER_MAX_RECENT = 3
+REDISCOVER_MIN_WATCHES = 3
+
+
+def _rediscover_sql(months: int) -> tuple[str, tuple]:
+    """Unreviewed channels I watched a lot between `months` and 6 months ago, but rarely since.
+    The default ranking favours the last 6 months, so these sit deep in the normal queue."""
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=months * 30.4)).strftime("%Y-%m-%dT%H:%M:%S")
+    end = (now - timedelta(days=180)).strftime("%Y-%m-%dT%H:%M:%S")
+    sql = (
+        "SELECT c.*, h.n AS window_watches FROM channels c JOIN ("
+        "  SELECT channel_id, COUNT(*) AS n FROM takeout_history"
+        "  WHERE watched_at >= ? AND watched_at < ? GROUP BY channel_id) h ON h.channel_id = c.id "
+        f"WHERE c.reviewed = 0 AND c.watches_180d < {REDISCOVER_MAX_RECENT} AND h.n >= {REDISCOVER_MIN_WATCHES}"
+    )
+    return sql, (start, end)
+
+
 @app.get("/api/triage/stats")
-def triage_stats(conn: sqlite3.Connection = Conn):
+def triage_stats(months: int = 24, conn: sqlite3.Connection = Conn):
     by_tier = {r["tier"]: r["n"] for r in conn.execute(
         "SELECT tier, COUNT(*) n FROM channels WHERE reviewed = 1 GROUP BY tier")}
     unreviewed = conn.execute("SELECT COUNT(*) FROM channels WHERE reviewed = 0").fetchone()[0]
-    return {"reviewed": by_tier, "unreviewed": unreviewed}
+    sql, params = _rediscover_sql(months)
+    rediscover = conn.execute(f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
+    return {"reviewed": by_tier, "unreviewed": unreviewed, "rediscover": rediscover}
 
 
 @app.get("/api/triage/next")
-def triage_next(limit: int = 20, conn: sqlite3.Connection = Conn):
-    """Unreviewed channels, most-watched first, with a few titles I actually watched."""
-    rows = conn.execute(
-        f"SELECT *, {RANK_SQL} AS rank FROM channels WHERE reviewed = 0 "
-        "ORDER BY rank DESC, title LIMIT ?", (limit,)
-    ).fetchall()
+def triage_next(limit: int = 20, mode: Literal["top", "rediscover"] = "top", months: int = 24,
+                conn: sqlite3.Connection = Conn):
+    """Unreviewed channels with a few titles I actually watched: most-watched first ("top"),
+    or older favourites I've stopped watching ("rediscover")."""
+    if mode == "rediscover":
+        sql, params = _rediscover_sql(months)
+        rows = conn.execute(sql + " ORDER BY h.n DESC, c.title LIMIT ?", (*params, limit)).fetchall()
+    else:
+        rows = conn.execute(
+            f"SELECT *, {RANK_SQL} AS rank FROM channels WHERE reviewed = 0 "
+            "ORDER BY rank DESC, title LIMIT ?", (limit,)
+        ).fetchall()
     out = []
     for r in rows:
         watched = conn.execute(

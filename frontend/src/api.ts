@@ -16,7 +16,11 @@ export interface Channel {
 
 export interface TriageChannel extends Channel {
   watched_titles: string[]
+  /** Rediscover mode: watches between `months` ago and 6 months ago. */
+  window_watches?: number
 }
+
+export type TriageMode = 'top' | 'rediscover'
 
 export interface Upload {
   id: string
@@ -34,6 +38,7 @@ export interface Preview {
 export interface TriageStats {
   reviewed: Partial<Record<Tier, number>>
   unreviewed: number
+  rediscover: number
 }
 
 export interface FeedVideo {
@@ -86,8 +91,9 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const api = {
-  triageStats: () => get<TriageStats>('/api/triage/stats'),
-  triageNext: (limit = 20) => get<TriageChannel[]>(`/api/triage/next?limit=${limit}`),
+  triageStats: (months = 24) => get<TriageStats>(`/api/triage/stats?months=${months}`),
+  triageNext: (limit = 20, mode: TriageMode = 'top', months = 24) =>
+    get<TriageChannel[]>(`/api/triage/next?limit=${limit}&mode=${mode}&months=${months}`),
   preview: (id: string) => get<Preview>(`/api/channels/${id}/preview`),
   channels: (tier?: Tier) => get<Channel[]>(`/api/channels${tier ? `?tier=${tier}` : ''}`),
   feed: (offset = 0, limit = 48) => get<FeedVideo[]>(`/api/feed?limit=${limit}&offset=${offset}`),

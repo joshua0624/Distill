@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Preview, type Tier, type TriageChannel, type TriageStats } from '../api'
+import { useSearchParams } from 'react-router-dom'
+import { api, type Preview, type Tier, type TriageChannel, type TriageMode, type TriageStats } from '../api'
 import { timeAgo } from '../utils'
 
 type Choice = Exclude<Tier, 'candidate'> | 'skip'
@@ -18,21 +19,33 @@ const KEYS: Record<string, Choice> = {
   s: 'skip', ' ': 'skip',
 }
 
+const WINDOWS = [
+  { months: 12, label: '6 mo – 1 yr ago' },
+  { months: 24, label: '6 mo – 2 yr ago' },
+  { months: 60, label: '6 mo – 5 yr ago' },
+]
+
 export default function Triage() {
+  const [params, setParams] = useSearchParams()
+  const mode: TriageMode = params.get('mode') === 'rediscover' ? 'rediscover' : 'top'
+  const months = Number(params.get('months')) || 24
   const [queue, setQueue] = useState<TriageChannel[]>([])
   const [previews, setPreviews] = useState<Record<string, Preview>>({})
   const [stats, setStats] = useState<TriageStats | null>(null)
   const [history, setHistory] = useState<TriageChannel[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const loadingMore = useRef(false)
+  const loadingMore = useRef<string | null>(null)
   const requested = useRef(new Set<string>())
 
   const refill = useCallback(async () => {
-    if (loadingMore.current) return
-    loadingMore.current = true
+    // Keyed by mode so a switch mid-load starts its own fetch and the old one is dropped.
+    const key = `${mode}-${months}`
+    if (loadingMore.current === key) return
+    loadingMore.current = key
     try {
-      const [next, s] = await Promise.all([api.triageNext(30), api.triageStats()])
+      const [next, s] = await Promise.all([api.triageNext(30, mode, months), api.triageStats(months)])
+      if (loadingMore.current !== key) return
       setStats(s)
       setQueue(q => {
         const seen = new Set(q.map(c => c.id))
@@ -41,12 +54,22 @@ export default function Triage() {
     } catch (e) {
       setError(String(e))
     } finally {
-      loadingMore.current = false
-      setLoading(false)
+      if (loadingMore.current === key) {
+        loadingMore.current = null
+        setLoading(false)
+      }
     }
-  }, [])
+  }, [mode, months])
 
-  useEffect(() => { refill() }, [refill])
+  // Switching mode or window starts a fresh queue.
+  useEffect(() => {
+    setQueue([])
+    setLoading(true)
+    refill()
+  }, [refill])
+
+  const setMode = (m: TriageMode, mo = months) =>
+    setParams(m === 'top' ? {} : { mode: m, months: String(mo) }, { replace: true })
 
   // Prefetch previews for the current card and the next two.
   useEffect(() => {
@@ -68,19 +91,21 @@ export default function Triage() {
     setQueue(q => q.slice(1))
     setHistory(h => [current, ...h].slice(0, 50))
     setStats(s => s && {
+      ...s,
       unreviewed: s.unreviewed - 1,
+      rediscover: s.rediscover - (mode === 'rediscover' ? 1 : 0),
       reviewed: { ...s.reviewed, [tier]: (s.reviewed[tier] ?? 0) + 1 },
     })
     api.setTier(current.id, tier).catch(e => setError(String(e)))
-  }, [current])
+  }, [current, mode])
 
   const undo = useCallback(() => {
     const [last, ...rest] = history
     if (!last) return
     setHistory(rest)
     setQueue(q => [last, ...q.filter(c => c.id !== last.id)])
-    api.setTier(last.id, 'candidate', false).then(() => api.triageStats().then(setStats))
-  }, [history])
+    api.setTier(last.id, 'candidate', false).then(() => api.triageStats(months).then(setStats))
+  }, [history, months])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -110,17 +135,38 @@ export default function Triage() {
         )}
       </div>
       {total > 0 && (
-        <div className="mb-5 h-1 overflow-hidden rounded-full bg-surface">
+        <div className="mb-4 h-1 overflow-hidden rounded-full bg-surface">
           <div className="h-full bg-accent transition-all" style={{ width: `${(reviewedCount / total) * 100}%` }} />
         </div>
       )}
+
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+        <div className="flex rounded-lg bg-surface p-0.5">
+          {(['top', 'rediscover'] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`rounded-md px-3 py-1 font-medium ${mode === m ? 'bg-bg shadow-sm' : 'text-muted hover:text-fg'}`}>
+              {m === 'top' ? 'Most watched' : 'Rediscover'}
+            </button>
+          ))}
+        </div>
+        {mode === 'rediscover' && (
+          <>
+            <select value={months} onChange={e => setMode('rediscover', Number(e.target.value))}
+              aria-label="Watched between"
+              className="rounded-lg border border-line bg-bg px-2 py-1">
+              {WINDOWS.map(w => <option key={w.months} value={w.months}>{w.label}</option>)}
+            </select>
+            {stats && <span className="text-muted">{stats.rediscover} channels you've drifted away from</span>}
+          </>
+        )}
+      </div>
 
       {error && <p className="mb-4 rounded-lg bg-surface p-3 text-sm text-blocked">{error}</p>}
 
       {loading ? (
         <p className="text-muted">Loading…</p>
       ) : !current ? (
-        <Empty hasAny={total > 0} />
+        <Empty hasAny={total > 0} rediscover={mode === 'rediscover'} />
       ) : (
         <>
           <Card key={current.id} channel={current} preview={previews[current.id]} onSwipe={decide} />
@@ -147,10 +193,12 @@ export default function Triage() {
   )
 }
 
-function Empty({ hasAny }: { hasAny: boolean }) {
+function Empty({ hasAny, rediscover }: { hasAny: boolean; rediscover: boolean }) {
   return (
     <div className="rounded-2xl bg-surface p-6 text-sm leading-relaxed">
-      {hasAny ? (
+      {rediscover ? (
+        <p>No more channels from that period. Try a wider window.</p>
+      ) : hasAny ? (
         <p>All channels triaged. New ones from discovery will show up here.</p>
       ) : (
         <>
@@ -225,6 +273,7 @@ function Card({ channel: c, preview, onSwipe }: {
           </h2>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted">
             <span>Watched {c.watch_count}×</span>
+            {c.window_watches != null && <span>{c.window_watches} before the last 6 mo</span>}
             <span>{c.watches_180d} in last 6 mo</span>
             <span>last {timeAgo(c.last_watched_at)}</span>
             {c.is_subscribed ? <span className="text-fg">Subscribed</span> : null}
