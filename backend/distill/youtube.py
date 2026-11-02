@@ -1,6 +1,8 @@
-"""YouTube access: RSS for new uploads (free), Data API for details (1 unit / 50 videos).
+"""YouTube access: RSS for new uploads (free, with the uploads playlist as fallback),
+Data API for details (1 unit / 50 videos).
 
-Quota costs (10k/day): videos.list 1, channels.list 1, channelSections.list 1, search.list 100.
+Quota costs (10k/day): videos.list 1, channels.list 1, channelSections.list 1,
+playlistItems.list 1, search.list 100.
 """
 import logging
 import re
@@ -20,6 +22,7 @@ NS = {
     "yt": "http://www.youtube.com/xml/schemas/2015",
     "media": "http://search.yahoo.com/mrss/",
 }
+RSS_GIVE_UP = 3
 DURATION_RE = re.compile(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
 CHANNEL_ID_RE = re.compile(r"\b(UC[A-Za-z0-9_-]{22})\b")
 HANDLE_RE = re.compile(r"(?:^|youtube\.com/)@([A-Za-z0-9._-]{3,30})")
@@ -76,6 +79,7 @@ class YouTube:
     def __init__(self, client: httpx.Client | None = None, api_key: str | None = None):
         self.http = client or httpx.Client(timeout=20, follow_redirects=False)
         self.api_key = api_key or settings.youtube_api_key
+        self.rss_failures = 0
 
     def _api(self, endpoint: str, **params) -> dict:
         if not self.api_key:
@@ -85,9 +89,43 @@ class YouTube:
         return r.json()
 
     def channel_uploads(self, channel_id: str) -> list[dict]:
-        r = self.http.get(RSS.format(channel_id))
+        """Latest uploads: RSS (free) when it works, else the uploads playlist (1 unit).
+        RSS has started answering 404 for whole runs, so after a few failures in a row
+        the rest of the run goes straight to the API."""
+        if self.rss_failures < RSS_GIVE_UP:
+            try:
+                r = self.http.get(RSS.format(channel_id))
+                r.raise_for_status()
+                self.rss_failures = 0
+                return parse_rss(r.text)
+            except httpx.HTTPError as e:
+                self.rss_failures += 1
+                log.info("RSS failed for %s (%s); using the API", channel_id, e)
+        return self.playlist_uploads(channel_id)
+
+    def playlist_uploads(self, channel_id: str, n: int = 15) -> list[dict]:
+        if not self.api_key:
+            raise MissingApiKey("Set YOUTUBE_API_KEY in .env")
+        # Every channel's uploads playlist is its id with UC swapped for UU.
+        r = self.http.get(f"{API}/playlistItems", params={
+            "part": "snippet,contentDetails", "playlistId": "UU" + channel_id[2:],
+            "maxResults": n, "key": self.api_key})
+        if r.status_code == 404:  # channel deleted or has no uploads
+            return []
         r.raise_for_status()
-        return parse_rss(r.text)
+        out = []
+        for item in r.json().get("items", []):
+            sn, cd = item["snippet"], item["contentDetails"]
+            out.append({
+                "is_short": None,  # unknown here; the Shorts check after details settles it
+                "id": cd["videoId"],
+                "channel_id": channel_id,
+                "title": sn.get("title"),
+                "published_at": cd.get("videoPublishedAt") or sn.get("publishedAt"),
+                "thumb_url": (sn.get("thumbnails", {}).get("high") or {}).get("url"),
+                "description": sn.get("description"),
+            })
+        return out
 
     def video_details(self, ids: Iterable[str]) -> dict[str, dict]:
         out = {}

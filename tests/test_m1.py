@@ -197,3 +197,25 @@ def test_ingest(conn):
     assert r.new_videos == 0
     reasons = dict(conn.execute("SELECT video_id, reason FROM decisions"))
     assert reasons["mixed000001"] == "trusted" and reasons["long0000001"] == "manual"
+
+
+def test_uploads_fall_back_to_api_when_rss_fails():
+    import httpx
+    from distill.youtube import YouTube
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if "feeds/videos.xml" in str(request.url):
+            return httpx.Response(404)
+        assert request.url.params["playlistId"] == "UU" + "a" * 22
+        return httpx.Response(200, json={"items": [{
+            "snippet": {"title": "From the API", "description": "d", "thumbnails": {}},
+            "contentDetails": {"videoId": "apivideo001", "videoPublishedAt": "2026-11-01T00:00:00Z"}}]})
+
+    yt = YouTube(client=httpx.Client(transport=httpx.MockTransport(handler)), api_key="k")
+    for _ in range(4):
+        uploads = yt.channel_uploads("UC" + "a" * 22)
+    assert uploads[0]["id"] == "apivideo001" and uploads[0]["is_short"] is None
+    # Three RSS 404s in a row, then straight to the API for the rest of the run.
+    assert seen.count("/feeds/videos.xml") == 3 and seen.count("/youtube/v3/playlistItems") == 4
