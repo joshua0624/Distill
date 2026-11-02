@@ -29,6 +29,11 @@ export default function Home() {
 
   useEffect(() => { if (!videos) loadMore() }, [videos, loadMore])
 
+  const hide = (id: string) => {
+    setVideos(vs => vs?.filter(v => v.id !== id) ?? null)
+    api.override(id, false).catch(() => {})
+  }
+
   useEffect(() => {
     const el = sentinel.current
     if (!el || done) return
@@ -55,7 +60,7 @@ export default function Home() {
   return (
     <>
       <div className="grid gap-x-4 gap-y-8 pt-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {videos.map(v => <VideoCard key={v.id} v={v} />)}
+        {videos.map(v => <VideoCard key={v.id} v={v} onHide={() => hide(v.id)} />)}
       </div>
       <div ref={sentinel} className="h-px" />
       {done && <p className="py-10 text-center text-sm text-muted">That's everything from your channels.</p>}

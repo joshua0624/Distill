@@ -30,21 +30,32 @@ export function ChannelAvatar({ v, size = 'size-9' }: { v: FeedVideo; size?: str
   )
 }
 
-/** Grid card, like YouTube's home page. */
-export default function VideoCard({ v, onQueueChange }: {
+const HOVER = 'opacity-100 md:opacity-0 md:group-hover:opacity-100'
+
+/** Grid card, like YouTube's home page. `onHide` adds a "Not interested" button. */
+export default function VideoCard({ v, onQueueChange, onHide }: {
   v: FeedVideo
   onQueueChange?: (inQueue: boolean) => void
+  onHide?: () => void
 }) {
   return (
     <div className="group relative">
-      <Link to={`/watch/${v.id}`}>
+      <Link to={`/watch/${v.id}`} title={v.one_line ?? undefined}>
         <Thumb v={v} />
       </Link>
-      <SaveButton v={v} onChange={onQueueChange}
-        className="absolute right-1.5 top-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100" />
+      <div className={`absolute right-1.5 top-1.5 flex flex-col gap-1 ${HOVER}`}>
+        <SaveButton v={v} onChange={onQueueChange} />
+        {onHide && (
+          <button onClick={onHide} title="Not interested" aria-label="Not interested: hide this video"
+            className="grid size-8 place-items-center rounded-md bg-black/80 text-white">
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2"
+              strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        )}
+      </div>
       <div className="mt-3 flex gap-3">
         <ChannelAvatar v={v} />
-        <Link to={`/watch/${v.id}`} className="min-w-0">
+        <Link to={`/watch/${v.id}`} className="min-w-0" title={v.one_line ?? undefined}>
           <h3 className="line-clamp-2 font-medium leading-snug">{v.title}</h3>
           <p className="mt-1 text-sm text-muted">{v.channel_title}</p>
           <p className="text-sm text-muted">

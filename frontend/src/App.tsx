@@ -5,6 +5,7 @@ import Channels from './pages/Channels'
 import Watch from './pages/Watch'
 import Later from './pages/Later'
 import History from './pages/History'
+import Hidden from './pages/Hidden'
 
 const NAV = [
   { to: '/', label: 'Home', icon: 'M4 10.5 12 4l8 6.5V20h-5v-6H9v6H4z' },
@@ -12,6 +13,7 @@ const NAV = [
   { to: '/history', label: 'History', icon: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 8v4l3 2' },
   { to: '/triage', label: 'Triage', icon: 'M4 6h16M4 12h10M4 18h6M17 14l3 3-3 3' },
   { to: '/channels', label: 'Channels', icon: 'M4 5h16v11H4zM8 20h8M12 16v4' },
+  { to: '/hidden', label: 'Hidden', icon: 'M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.4 5.2A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.2 4.2M6.6 6.6C4.4 8 2.8 10.2 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6' },
 ]
 
 function Icon({ d }: { d: string }) {
@@ -55,6 +57,7 @@ export default function App() {
             <Route path="/watch/:id" element={<Watch />} />
             <Route path="/later" element={<Later />} />
             <Route path="/history" element={<History />} />
+            <Route path="/hidden" element={<Hidden />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

@@ -80,6 +80,52 @@ CREATE TABLE IF NOT EXISTS queue (
     position    REAL NOT NULL,                -- sort key; reorder rewrites 1..n
     added_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS classifications (
+    video_id           TEXT PRIMARY KEY REFERENCES videos(id),
+    category           TEXT,                  -- NULL when error is set
+    topic              TEXT,
+    format             TEXT,
+    clickbait          INTEGER,
+    substance          TEXT,
+    slop_signals_json  TEXT,
+    interest_match     TEXT,
+    one_line           TEXT,
+    error              TEXT,                  -- refusal | max_tokens | bad_json | api error message
+    model              TEXT NOT NULL,
+    prompt_version     TEXT NOT NULL,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY,
+    video_id    TEXT NOT NULL REFERENCES videos(id),
+    signal      TEXT NOT NULL,                -- override (M3); up/down/hide later
+    value       TEXT NOT NULL,                -- show | hide | clear
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS llm_usage (
+    date                TEXT PRIMARY KEY,     -- YYYY-MM-DD, UTC
+    requests            INTEGER NOT NULL DEFAULT 0,
+    input_tokens        INTEGER NOT NULL DEFAULT 0,
+    output_tokens       INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+    cost_usd            REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS llm_batches (
+    id          TEXT PRIMARY KEY,             -- Anthropic batch id
+    status      TEXT NOT NULL DEFAULT 'in_progress',  -- in_progress | ended
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS llm_batch_videos (
+    batch_id    TEXT NOT NULL REFERENCES llm_batches(id),
+    video_id    TEXT NOT NULL REFERENCES videos(id),
+    PRIMARY KEY (batch_id, video_id)
+);
 """
 
 

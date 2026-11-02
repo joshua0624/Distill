@@ -50,6 +50,29 @@ export interface FeedVideo {
   watched_pct: number | null
   last_watched_at: string | null
   in_queue: number
+  visible: number | null
+  reason: string | null
+  overridden: number | null
+  category: string | null
+  one_line: string | null
+}
+
+export interface HiddenReason {
+  reason: string
+  count: number
+}
+
+export interface Decision {
+  visible: number | null
+  reason: string | null
+  overridden: number
+}
+
+export interface LlmUsage {
+  month_usd: number
+  budget_usd: number
+  model: string
+  pending: number
 }
 
 export interface VideoDetail extends FeedVideo {
@@ -84,6 +107,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ position_s, duration_s }),
     }),
+  hidden: (reason?: string, offset = 0, limit = 60) =>
+    get<FeedVideo[]>(`/api/hidden?limit=${limit}&offset=${offset}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`),
+  hiddenReasons: () => get<HiddenReason[]>('/api/hidden/reasons'),
+  llmUsage: () => get<LlmUsage>('/api/llm/usage'),
+  /** true = show anyway, false = hide this, null = let the rules decide again. */
+  override: async (id: string, visible: boolean | null): Promise<Decision> => {
+    const r = await fetch(`/api/videos/${id}/override`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visible }),
+    })
+    if (!r.ok) throw new Error(`override ${id}: ${r.status}`)
+    return r.json()
+  },
   setTier: (id: string, tier: Tier, reviewed = true) =>
     send('POST', `/api/channels/${id}/tier`, { tier, reviewed }),
 }

@@ -20,6 +20,12 @@ class Settings:
     blocked_title_keywords: list[str] = field(default_factory=list)
     # Ingest
     max_video_age_days: int = 14
+    # Classification (the API key comes from ANTHROPIC_API_KEY in .env)
+    llm_model: str = "claude-haiku-5-5"
+    llm_price_input_per_mtok: float = 0.10
+    llm_price_output_per_mtok: float = 0.50
+    llm_monthly_budget_usd: float = 3.00
+    llm_batch_threshold: int = 20
 
 
 def load_settings() -> Settings:

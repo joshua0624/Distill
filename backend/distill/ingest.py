@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from distill.config import Settings, settings as default_settings
-from distill.rules import decide
+from distill.rules import Decision, decide, decide_llm, load_llm_rules
 from distill.youtube import YouTube
 
 log = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ def ingest(conn: sqlite3.Connection, yt: YouTube, s: Settings = default_settings
     conn.commit()
 
     _fill_details(conn, yt, s, res)
-    _apply_rules(conn, s, res)
+    res.visible = apply_rules(conn, s)
     conn.commit()
     return res
 
@@ -91,19 +91,33 @@ def _fill_details(conn, yt: YouTube, s: Settings, res: IngestResult) -> None:
                  (s.shorts_max_s,))
 
 
-def _apply_rules(conn, s: Settings, res: IngestResult) -> None:
-    """Re-decide every video that hasn't been manually overridden (cheap, and picks up tier changes)."""
+def apply_rules(conn, s: Settings = default_settings) -> int:
+    """Re-decide every video that hasn't been manually overridden (cheap, and picks up tier,
+    rules.yaml and classification changes). Returns how many are visible."""
     sport_rules: dict[str, list[dict]] = {}
     for r in conn.execute("SELECT * FROM sport_rules WHERE enabled = 1"):
         sport_rules.setdefault(r["channel_id"], []).append(dict(r))
+    llm_rules = load_llm_rules()
 
     rows = conn.execute(
-        "SELECT v.*, c.tier FROM videos v JOIN channels c ON c.id = v.channel_id "
+        "SELECT v.*, c.tier, cl.category, cl.format, cl.clickbait, cl.substance, "
+        "cl.slop_signals_json, cl.interest_match, cl.error AS cls_error, "
+        "cl.video_id IS NOT NULL AS classified "
+        "FROM videos v JOIN channels c ON c.id = v.channel_id "
         "LEFT JOIN decisions d ON d.video_id = v.id "
+        "LEFT JOIN classifications cl ON cl.video_id = v.id "
         "WHERE v.details_at IS NOT NULL AND COALESCE(d.overridden, 0) = 0"
     ).fetchall()
+    visible = 0
     for row in rows:
         d = decide(dict(row), row["tier"], sport_rules.get(row["channel_id"], []), s)
+        if d.reason == "pending_llm" and row["classified"]:
+            if row["cls_error"]:
+                d = Decision(False, "llm_error")
+            else:
+                cls = dict(row, clickbait=bool(row["clickbait"]),
+                           slop_signals=json.loads(row["slop_signals_json"] or "[]"))
+                d = decide_llm(cls, llm_rules)
         conn.execute(
             "INSERT INTO decisions (video_id, visible, reason) VALUES (?, ?, ?) "
             "ON CONFLICT(video_id) DO UPDATE SET visible = excluded.visible, "
@@ -111,4 +125,5 @@ def _apply_rules(conn, s: Settings, res: IngestResult) -> None:
             "WHERE decisions.reason != excluded.reason OR decisions.visible != excluded.visible",
             (row["id"], int(d.visible), d.reason),
         )
-        res.visible += d.visible
+        visible += d.visible
+    return visible

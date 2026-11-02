@@ -10,7 +10,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from distill import db
-from distill.config import ROOT
+from distill.classify import month_spend
+from distill.config import ROOT, settings
+from distill.ingest import apply_rules
 from distill.takeout import RANK_SQL
 from distill.youtube import YouTube
 
@@ -112,19 +114,21 @@ def list_channels(tier: str | None = None, conn: sqlite3.Connection = Conn):
 CARD_SQL = """
     SELECT v.id, v.title, v.published_at, v.duration_s, v.views, v.thumb_url,
            c.id AS channel_id, c.title AS channel_title, c.thumb_url AS channel_thumb,
-           p.position_s, p.watched_pct, p.last_watched_at, q.video_id IS NOT NULL AS in_queue
+           p.position_s, p.watched_pct, p.last_watched_at, q.video_id IS NOT NULL AS in_queue,
+           d.visible, d.reason, d.overridden, cl.category, cl.one_line
     FROM videos v
     JOIN channels c ON c.id = v.channel_id
     LEFT JOIN progress p ON p.video_id = v.id
     LEFT JOIN queue q ON q.video_id = v.id
+    LEFT JOIN decisions d ON d.video_id = v.id
+    LEFT JOIN classifications cl ON cl.video_id = v.id
 """
 
 
 @app.get("/api/feed")
 def feed(limit: int = 60, offset: int = 0, conn: sqlite3.Connection = Conn):
     rows = conn.execute(
-        CARD_SQL + " JOIN decisions d ON d.video_id = v.id "
-        "WHERE d.visible = 1 ORDER BY v.published_at DESC LIMIT ? OFFSET ?",
+        CARD_SQL + " WHERE d.visible = 1 ORDER BY v.published_at DESC LIMIT ? OFFSET ?",
         (limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -206,14 +210,67 @@ def reorder_queue(body: QueueOrder, conn: sqlite3.Connection = Conn):
     return {"ok": True}
 
 
+# Reasons that are noise in the Hidden view: you never want to scroll past these.
+HIDDEN_EXCLUDE = ("blocked_channel", "short", "upcoming", "live")
+
+
 @app.get("/api/hidden")
-def hidden(limit: int = 100, conn: sqlite3.Connection = Conn):
-    rows = conn.execute(
-        "SELECT v.id, v.title, v.duration_s, c.title AS channel_title, d.reason "
-        "FROM videos v JOIN decisions d ON d.video_id = v.id JOIN channels c ON c.id = v.channel_id "
-        "WHERE d.visible = 0 ORDER BY v.published_at DESC LIMIT ?", (limit,)
-    ).fetchall()
+def hidden(reason: str | None = None, limit: int = 100, offset: int = 0,
+           conn: sqlite3.Connection = Conn):
+    """Videos hidden by the rules, newest first, optionally for one reason."""
+    sql = CARD_SQL + " WHERE d.visible = 0"
+    params: list = []
+    if reason:
+        sql += " AND d.reason = ?"
+        params.append(reason)
+    else:
+        sql += f" AND d.reason NOT IN ({','.join('?' * len(HIDDEN_EXCLUDE))})"
+        params += HIDDEN_EXCLUDE
+    rows = conn.execute(sql + " ORDER BY v.published_at DESC LIMIT ? OFFSET ?",
+                        (*params, limit, offset)).fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/hidden/reasons")
+def hidden_reasons(conn: sqlite3.Connection = Conn):
+    rows = conn.execute(
+        "SELECT reason, COUNT(*) AS count FROM decisions WHERE visible = 0 "
+        "GROUP BY reason ORDER BY count DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+class Override(BaseModel):
+    visible: bool | None  # None clears the override and lets the rules decide again
+
+
+@app.post("/api/videos/{video_id}/override")
+def override(video_id: str, body: Override, conn: sqlite3.Connection = Conn):
+    """Show anyway / Hide this. Each one is kept as a label for the prompt and `distill eval`."""
+    if not conn.execute("SELECT 1 FROM videos WHERE id = ?", (video_id,)).fetchone():
+        raise HTTPException(404)
+    value = "clear" if body.visible is None else ("show" if body.visible else "hide")
+    conn.execute("INSERT INTO feedback (video_id, signal, value) VALUES (?, 'override', ?)",
+                 (video_id, value))
+    if body.visible is None:
+        conn.execute("UPDATE decisions SET overridden = 0 WHERE video_id = ?", (video_id,))
+        apply_rules(conn)
+    else:
+        conn.execute(
+            "INSERT INTO decisions (video_id, visible, reason, overridden) VALUES (?, ?, 'override', 1) "
+            "ON CONFLICT(video_id) DO UPDATE SET visible = excluded.visible, reason = 'override', "
+            "overridden = 1, decided_at = datetime('now')",
+            (video_id, int(body.visible)))
+    row = conn.execute("SELECT visible, reason, overridden FROM decisions WHERE video_id = ?",
+                       (video_id,)).fetchone()
+    return dict(row) if row else {"visible": None, "reason": None, "overridden": 0}
+
+
+@app.get("/api/llm/usage")
+def llm_usage(conn: sqlite3.Connection = Conn):
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM decisions WHERE reason = 'pending_llm' AND overridden = 0").fetchone()[0]
+    return {"month_usd": month_spend(conn), "budget_usd": settings.llm_monthly_budget_usd,
+            "model": settings.llm_model, "pending": pending}
 
 
 dist = ROOT / "frontend" / "dist"

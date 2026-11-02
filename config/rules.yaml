@@ -1,0 +1,25 @@
+# What to show from mixed channels, decided from the LLM's classification.
+#
+# Rules run top to bottom and the first one whose conditions all match wins.
+# - A list value means "any of these":         format: [reaction, compilation]
+# - slop_signals_any matches any listed signal: slop_signals_any: [reupload]
+# - <field>_at_least works for substance (low < medium < high)
+#   and interest_match (none < some < strong): substance_at_least: medium
+# - The last rule should be a `default` (show or hide).
+#
+# Field values are listed in backend/distill/classify.py (SCHEMA).
+# After editing, run `uv run distill rules` to re-apply without calling the LLM.
+
+- name: Reaction or compilation
+  hide_if: { format: [reaction, compilation] }
+
+# Only signals the description and tags can back up. Title style (clickbait, rage_bait,
+# misleading_title) is recorded but not used: on YouTube even good videos have hype titles.
+- name: Slop
+  hide_if: { slop_signals_any: [ai_voiceover, reupload] }
+
+- name: Not my interests
+  hide_if: { interest_match: none }
+
+- name: Matches my interests
+  default: show

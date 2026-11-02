@@ -11,3 +11,15 @@ blocked_title_keywords: []
 
 # RSS returns each channel's 15 latest uploads; ignore anything older than this.
 max_video_age_days: 14
+
+# Classification — mixed-channel videos that pass the hard rules go to the LLM,
+# then config/rules.yaml decides what to show.
+llm_model: claude-haiku-5-5
+# USD per million tokens for llm_model; used to track spend. Batches cost half.
+llm_price_input_per_mtok: 0.10
+llm_price_output_per_mtok: 0.50
+# Classification stops for the month once this much has been spent.
+llm_monthly_budget_usd: 3.00
+# This many videos or more go through the Batch API (half price, minutes to an hour);
+# fewer are classified straight away.
+llm_batch_threshold: 20

@@ -23,3 +23,22 @@ export function compact(n: number | null): string {
   if (n == null) return ''
   return Intl.NumberFormat('en', { notation: 'compact' }).format(n)
 }
+
+const REASONS: Record<string, string> = {
+  short: 'Shorts',
+  too_short: 'Too short',
+  live: 'Live now',
+  upcoming: 'Upcoming',
+  blocked_keyword: 'Blocked keyword',
+  blocked_channel: 'Blocked channel',
+  sport_rule_miss: 'Sport rule miss',
+  pending_llm: 'Waiting to be classified',
+  llm_error: "Couldn't classify",
+  override: 'Hidden by you',
+}
+
+/** Human label for a decision reason; rules.yaml reasons come as `rule:<name>`. */
+export function reasonLabel(reason: string | null): string {
+  if (!reason) return ''
+  return reason.startsWith('rule:') ? reason.slice(5) : REASONS[reason] ?? reason
+}
