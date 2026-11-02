@@ -1,5 +1,19 @@
+# secrets and personal data — this repo is public
 .env
-.venv/
+data/
+*.db
+*.db-*
+
+# python
+.venv
+.venv.nosync/
 __pycache__/
 *.pyc
-*.db
+.pytest_cache/
+
+# frontend
+node_modules/
+frontend/dist/
+
+.DS_Store
+.claude/launch.json

@@ -1,8 +1,13 @@
-# Feed filtering thresholds
-# Items with a relevance_score below min_relevance_score are hidden from the feed.
-# Unscored items (NULL) always appear until the batch job runs.
-min_relevance_score: 50
+# Hard rules — applied to every video, no LLM involved.
 
-# Phase 3: Controlled Serendipity
-# Hard daily cap on discovery items surfaced per day. Cannot be exceeded.
-discovery_daily_cap: 5
+# Anything this short or shorter gets checked against youtube.com/shorts/<id>.
+shorts_max_s: 180
+
+# Videos shorter than this are hidden. Sport rules can set their own minimum.
+min_duration_s: 240
+
+# Case-insensitive substrings; a title containing any of these is hidden.
+blocked_title_keywords: []
+
+# RSS returns each channel's 15 latest uploads; ignore anything older than this.
+max_video_age_days: 14

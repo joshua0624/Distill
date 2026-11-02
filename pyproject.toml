@@ -1,15 +1,30 @@
 [project]
 name = "distill"
-version = "0.1.0"
-description = "Personal content curation platform"
+version = "0.2.0"
+description = "Personal YouTube front page"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "google-api-python-client>=2.150.0",
-    "google-auth-oauthlib>=1.3.0",
-    "python-dotenv>=1.2.2",
-    "praw>=7.8.0",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.0.0",
     "pyyaml>=6.0.2",
-    "youtube-transcript-api>=1.2.4",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8.3.0"]
+
+[project.scripts]
+distill = "distill.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/distill"]
+sources = ["backend"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["tests"]
