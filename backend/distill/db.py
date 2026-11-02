@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS takeout_history (
     watched_at  TEXT NOT NULL,
     PRIMARY KEY (video_id, watched_at)
 );
+CREATE INDEX IF NOT EXISTS idx_history_channel ON takeout_history(channel_id, watched_at);
 """
 
 

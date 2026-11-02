@@ -4,6 +4,7 @@ Builds the candidate channel list so I triage a ranked list instead of
 assembling subscriptions from memory.
 """
 import csv
+import html
 import json
 import re
 import sqlite3
@@ -32,9 +33,48 @@ class ImportResult:
     subscriptions: int
 
 
+HTML_ENTRY_RE = re.compile(
+    r'mdl-typography--title">(?P<header>[^<]*)<br>.*?'
+    r'mdl-typography--body-1">(?P<body>.*?)</div>.*?'
+    r'mdl-typography--caption">(?P<caption>.*?)</div>',
+    re.S,
+)
+HTML_LINK_RE = re.compile(r'<a href="([^"]*)">(.*?)</a>', re.S)
+HTML_DATE_RE = re.compile(r"<br>([A-Z][a-z]{2} \d{1,2}, \d{4}, [\d:]+\s?[AP]M)")
+
+
+def _html_entries(text: str) -> list[dict]:
+    """Turn the HTML export into the same entry shape as the JSON export."""
+    entries = []
+    for cell in text.split('<div class="outer-cell')[1:]:
+        m = HTML_ENTRY_RE.search(cell)
+        if not m:
+            continue
+        body = m["body"].replace(" ", " ").replace("\xa0", " ")
+        links = HTML_LINK_RE.findall(body)
+        date = HTML_DATE_RE.search(body)
+        if not date:
+            continue
+        # Takeout writes local time with a zone abbreviation; hour precision doesn't matter here.
+        when = datetime.strptime(date.group(1), "%b %d, %Y, %I:%M:%S %p")
+        entry = {
+            "header": html.unescape(m["header"]).strip(),
+            "title": "Watched " + html.unescape(links[0][1]) if links else "",
+            "titleUrl": links[0][0] if links else "",
+            "time": when.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        }
+        if len(links) > 1:
+            entry["subtitles"] = [{"name": html.unescape(links[1][1]), "url": links[1][0]}]
+        if "From Google Ads" in m["caption"]:
+            entry["details"] = [{"name": "From Google Ads"}]
+        entries.append(entry)
+    return entries
+
+
 def parse_watch_history(path: Path) -> tuple[list[Watch], int]:
     """Return (watches, skipped). Skips ads, YouTube Music, and removed videos."""
-    entries = json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    entries = _html_entries(text) if path.suffix == ".html" else json.loads(text)
     watches, skipped = [], 0
     for e in entries:
         if e.get("header") == "YouTube Music" or any(
@@ -78,13 +118,10 @@ def find_file(root: Path, name: str) -> Path | None:
 def import_takeout(conn: sqlite3.Connection, root: Path, now: datetime | None = None) -> ImportResult:
     """Import from a Takeout folder (or the files directly). Safe to re-run."""
     now = now or datetime.now(timezone.utc)
-    history = find_file(root, "watch-history.json")
+    history = find_file(root, "watch-history.json") or find_file(root, "watch-history.html")
     subs_csv = find_file(root, "subscriptions.csv")
     if not history and not subs_csv:
-        raise FileNotFoundError(
-            f"No watch-history.json or subscriptions.csv under {root}. "
-            "Export history as JSON, not HTML."
-        )
+        raise FileNotFoundError(f"No watch-history.json/.html or subscriptions.csv under {root}.")
 
     watches, skipped = parse_watch_history(history) if history else ([], 0)
     subs = parse_subscriptions(subs_csv) if subs_csv else []

@@ -72,9 +72,37 @@ def test_import_takeout(conn, takeout):
     assert conn.execute("SELECT watch_count FROM channels WHERE id = ?", (A,)).fetchone()[0] == 3
 
 
-def test_import_takeout_rejects_html_export(tmp_path):
-    (tmp_path / "watch-history.html").write_text("<html></html>")
-    with pytest.raises(FileNotFoundError, match="JSON"):
+def html_cell(body, caption="<b>Products:</b><br>&emsp;YouTube<br>"):
+    return (
+        '<div class="outer-cell mdl-cell mdl-cell--12-col mdl-shadow--2dp"><div class="mdl-grid">'
+        '<div class="header-cell mdl-cell mdl-cell--12-col"><p class="mdl-typography--title">YouTube<br></p></div>'
+        f'<div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--body-1">{body}</div>'
+        '<div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--body-1 mdl-typography--text-right"></div>'
+        f'<div class="content-cell mdl-cell mdl-cell--12-col mdl-typography--caption">{caption}</div></div></div>'
+    )
+
+
+def test_import_takeout_html_export(tmp_path):
+    cells = [
+        html_cell(f'Watched\xa0<a href="https://www.youtube.com/watch?v=aaaaaaaaaa1">Rockets &amp; Lakers</a><br>'
+                  f'<a href="https://www.youtube.com/channel/{A}">Chan A</a><br>Oct 20, 2026, 1:48:14 PM EST<br>'),
+        html_cell(f'Watched\xa0<a href="https://www.youtube.com/watch?v=ccccccccccc">Ad</a><br>'
+                  f'<a href="https://www.youtube.com/channel/{C}">Chan C</a><br>Oct 20, 2026, 1:00:00 PM EST<br>',
+                  caption="<b>Details:</b><br>&emsp;From Google Ads<br>"),
+        html_cell('Watched\xa0<a href="https://www.youtube.com/watch?v=rrrrrrrrrrr">https://www.youtube.com/watch?v=rrrrrrrrrrr</a>'
+                  '<br>Jan 1, 2020, 9:00:00 AM EST<br>'),  # removed video: no channel link
+    ]
+    (tmp_path / "watch-history.html").write_text("<html><body>" + "".join(cells) + "</body></html>")
+    conn = db.connect(tmp_path / "t.db")
+    r = import_takeout(conn, tmp_path, now=NOW)
+    assert (r.watches, r.skipped, r.channels) == (1, 2, 1)
+    row = conn.execute("SELECT * FROM takeout_history").fetchone()
+    assert row["title"] == "Rockets & Lakers" and row["watched_at"] == "2026-10-20T13:48:14.000Z"
+    assert conn.execute("SELECT watches_180d FROM channels").fetchone()[0] == 1
+
+
+def test_import_takeout_requires_history_or_subscriptions(tmp_path):
+    with pytest.raises(FileNotFoundError):
         import_takeout(db.connect(tmp_path / "t.db"), tmp_path)
 
 
