@@ -33,10 +33,12 @@ export function ChannelAvatar({ v, size = 'size-9' }: { v: FeedVideo; size?: str
 const HOVER = 'opacity-100 md:opacity-0 md:group-hover:opacity-100'
 
 /** Grid card, like YouTube's home page. `onHide` adds a "Not interested" button. */
-export default function VideoCard({ v, onQueueChange, onHide }: {
+export default function VideoCard({ v, onQueueChange, onHide, note }: {
   v: FeedVideo
   onQueueChange?: (inQueue: boolean) => void
   onHide?: () => void
+  /** Extra line under the stats, e.g. where a discovered video came from. */
+  note?: string
 }) {
   return (
     <div className="group relative">
@@ -61,6 +63,7 @@ export default function VideoCard({ v, onQueueChange, onHide }: {
           <p className="text-sm text-muted">
             {v.views != null && `${compact(v.views)} views · `}{timeAgo(v.published_at)}
           </p>
+          {note && <p className="mt-0.5 line-clamp-1 text-xs text-muted">{note}</p>}
         </Link>
       </div>
     </div>

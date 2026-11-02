@@ -33,6 +33,7 @@ const REASONS: Record<string, string> = {
   blocked_channel: 'Blocked channel',
   sport_rule_miss: 'Sport rule miss',
   pending_llm: 'Waiting to be classified',
+  too_few_views: 'Too few views (discovery)',
   llm_error: "Couldn't classify",
   override: 'Hidden by you',
 }
@@ -41,4 +42,13 @@ const REASONS: Record<string, string> = {
 export function reasonLabel(reason: string | null): string {
   if (!reason) return ''
   return reason.startsWith('rule:') ? reason.slice(5) : REASONS[reason] ?? reason
+}
+
+/** Where a discovered video came from, for the Discovery row and watch page. */
+export function discoveredVia(v: { source: string; discovered_via: string | null }): string {
+  const via = v.discovered_via ?? ''
+  if (v.source === 'search') return `Search: ${via}`
+  if (v.source === 'adjacent') return via.charAt(0).toUpperCase() + via.slice(1)
+  if (v.source === 'llm') return via.replace(/^suggested: /, 'Suggested: ')
+  return via || 'Discovery'
 }

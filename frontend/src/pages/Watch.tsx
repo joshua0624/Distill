@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, type FeedVideo, type VideoDetail } from '../api'
+import { api, type FeedVideo, type Rating, type Tier, type VideoDetail } from '../api'
 import Player from '../components/Player'
 import SaveButton from '../components/SaveButton'
 import { ChannelAvatar, Thumb, VideoRow } from '../components/VideoCard'
-import { compact, timeAgo } from '../utils'
+import { compact, discoveredVia, timeAgo } from '../utils'
 
 /** Resume where I left off, unless I'd basically finished it. */
 function resumeFrom(v: VideoDetail): number {
@@ -82,7 +82,8 @@ export default function Watch() {
                   <p className="truncate font-medium">{video.channel_title}</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <RatingButtons key={video.id} id={video.id} initial={video.rating} />
                 <SaveButton key={`${video.id}-${video.in_queue}`} v={video} label onChange={loadQueue} />
                 <a href={`https://www.youtube.com/watch?v=${video.id}`} target="_blank" rel="noreferrer"
                   className="rounded-full bg-surface px-4 py-2 text-sm font-medium hover:bg-surface-hover">
@@ -90,6 +91,9 @@ export default function Watch() {
                 </a>
               </div>
             </div>
+            {video.tier === 'candidate' && (
+              <NewChannel video={video} onTier={tier => setVideo(v => v && { ...v, tier })} />
+            )}
             <div className="mt-3 rounded-xl bg-surface p-3 text-sm">
               <p className="font-medium">
                 {video.views != null && `${compact(video.views)} views · `}{timeAgo(video.published_at)}
@@ -158,6 +162,60 @@ function EndScreen({ next, onNext, onReplay }: {
             <button onClick={onReplay} className="rounded-full bg-white/15 px-4 py-2 text-sm hover:bg-white/25">Replay</button>
             <Link to="/" className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black">Home</Link>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const THUMB = 'M7 10v11H4V10zM7 10l4-7a2 2 0 0 1 3 2l-1 5h5.5a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 17.1 21H7'
+
+function RatingButtons({ id, initial }: { id: string; initial: Rating }) {
+  const [rating, setRating] = useState<Rating>(initial)
+  const set = (r: Exclude<Rating, null>) => {
+    const next = rating === r ? null : r
+    const prev = rating
+    setRating(next)
+    api.rate(id, next).catch(() => setRating(prev))
+  }
+  return (
+    <div className="flex overflow-hidden rounded-full bg-surface">
+      {(['up', 'down'] as const).map(r => (
+        <button key={r} onClick={() => set(r)} aria-pressed={rating === r}
+          aria-label={r === 'up' ? 'I like this' : "I don't like this"}
+          title={r === 'up' ? 'I like this' : "I don't like this"}
+          className={`px-4 py-2 hover:bg-surface-hover ${r === 'down' ? 'border-l border-line' : ''}`}>
+          <svg viewBox="0 0 24 24" className={`size-5 ${r === 'down' ? 'rotate-180' : ''}`}
+            fill={rating === r ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8"
+            strokeLinejoin="round" aria-hidden><path d={THUMB} /></svg>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** A discovered video: say where it came from and let me sort its channel on the spot. */
+function NewChannel({ video, onTier }: { video: VideoDetail; onTier: (t: Tier) => void }) {
+  const [done, setDone] = useState<Tier | null>(null)
+  const choose = (tier: Tier) => {
+    setDone(tier)
+    api.setTier(video.channel_id, tier).then(() => { if (tier !== 'blocked') onTier(tier) })
+      .catch(() => setDone(null))
+  }
+  const labels: Partial<Record<Tier, string>> = { trusted: 'Trusted', mixed: 'Mixed', blocked: 'Blocked' }
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line p-3 text-sm">
+      <p className="min-w-0 flex-1">
+        <span className="font-medium">New channel.</span>{' '}
+        <span className="text-muted">{discoveredVia(video)}</span>
+      </p>
+      {done ? (
+        <p className="text-muted">Added as {labels[done]}.</p>
+      ) : (
+        <div className="flex gap-2">
+          <button onClick={() => choose('trusted')} className="rounded-full bg-surface px-3 py-1.5 font-medium text-trusted hover:bg-surface-hover">Trusted</button>
+          <button onClick={() => choose('mixed')} className="rounded-full bg-surface px-3 py-1.5 font-medium text-mixed hover:bg-surface-hover">Mixed</button>
+          <button onClick={() => choose('blocked')} className="rounded-full bg-surface px-3 py-1.5 font-medium text-blocked hover:bg-surface-hover">Block</button>
         </div>
       )}
     </div>

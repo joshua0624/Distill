@@ -1,4 +1,4 @@
-"""Fetch new uploads from trusted and mixed channels, fill in details, apply hard rules."""
+"""Fetch new uploads from trusted and mixed channels (plus discovery), fill in details, apply rules."""
 import json
 import logging
 import sqlite3
@@ -20,16 +20,20 @@ class IngestResult:
     short_checks: int = 0
     visible: int = 0
     errors: int = 0
+    discovery: "DiscoverResult | None" = None
 
 
-def ingest(conn: sqlite3.Connection, yt: YouTube, s: Settings = default_settings) -> IngestResult:
+def ingest(conn: sqlite3.Connection, yt: YouTube, s: Settings = default_settings, *,
+           discover: bool = False, llm=None, channel_ids: list[str] | None = None) -> IngestResult:
+    """RSS for followed channels (or just `channel_ids`), then discovery (if on), then details
+    and hard rules for both."""
     res = IngestResult()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=s.max_video_age_days)).isoformat()
 
-    channels = conn.execute(
-        "SELECT id FROM channels WHERE tier IN ('trusted', 'mixed')"
-    ).fetchall()
-    for (channel_id,) in channels:
+    if channel_ids is None:
+        channel_ids = [r[0] for r in conn.execute(
+            "SELECT id FROM channels WHERE tier IN ('trusted', 'mixed')")]
+    for channel_id in channel_ids:
         try:
             uploads = yt.channel_uploads(channel_id)
         except Exception as e:  # one bad feed shouldn't stop the run
@@ -49,7 +53,13 @@ def ingest(conn: sqlite3.Connection, yt: YouTube, s: Settings = default_settings
             res.new_videos += cur.rowcount
         conn.execute("UPDATE channels SET last_fetched_at = datetime('now') WHERE id = ?",
                      (channel_id,))
-    conn.commit()
+        # Commit per channel: holding the write lock across network calls blocks the app's
+        # own writes (progress, ratings, triage) for the whole run.
+        conn.commit()
+
+    if discover:
+        from distill.discovery import discover as run_discovery
+        res.discovery = run_discovery(conn, yt, s, llm=llm)
 
     _fill_details(conn, yt, s, res)
     res.visible = apply_rules(conn, s)
@@ -74,6 +84,7 @@ def _fill_details(conn, yt: YouTube, s: Settings, res: IngestResult) -> None:
              d["views"], d["likes"], d["thumb_url"], vid),
         )
         res.detailed += 1
+    conn.commit()
 
     # RSS flags most Shorts; confirm the remaining short-enough ones directly.
     for (vid,) in conn.execute(
@@ -87,6 +98,7 @@ def _fill_details(conn, yt: YouTube, s: Settings, res: IngestResult) -> None:
             log.warning("Shorts check failed for %s: %s", vid, e)
             continue
         conn.execute("UPDATE videos SET is_short = ? WHERE id = ?", (int(is_short), vid))
+        conn.commit()
     conn.execute("UPDATE videos SET is_short = 0 WHERE is_short IS NULL AND duration_s > ?",
                  (s.shorts_max_s,))
 
@@ -101,7 +113,7 @@ def apply_rules(conn, s: Settings = default_settings) -> int:
 
     rows = conn.execute(
         "SELECT v.*, c.tier, cl.category, cl.format, cl.clickbait, cl.substance, "
-        "cl.slop_signals_json, cl.interest_match, cl.error AS cls_error, "
+        "cl.slop_signals_json, cl.interest_match, cl.english, cl.error AS cls_error, "
         "cl.video_id IS NOT NULL AS classified "
         "FROM videos v JOIN channels c ON c.id = v.channel_id "
         "LEFT JOIN decisions d ON d.video_id = v.id "
@@ -115,7 +127,8 @@ def apply_rules(conn, s: Settings = default_settings) -> int:
             if row["cls_error"]:
                 d = Decision(False, "llm_error")
             else:
-                cls = dict(row, clickbait=bool(row["clickbait"]),
+                # english is NULL before prompt v4; treat unknown as English.
+                cls = dict(row, clickbait=bool(row["clickbait"]), english=row["english"] != 0,
                            slop_signals=json.loads(row["slop_signals_json"] or "[]"))
                 d = decide_llm(cls, llm_rules)
         conn.execute(

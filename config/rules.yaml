@@ -5,10 +5,24 @@
 # - slop_signals_any matches any listed signal: slop_signals_any: [reupload]
 # - <field>_at_least works for substance (low < medium < high)
 #   and interest_match (none < some < strong): substance_at_least: medium
+# - `tiers: [candidate]` limits a rule to discovered channels (ones you don't follow).
 # - The last rule should be a `default` (show or hide).
 #
 # Field values are listed in backend/distill/classify.py (SCHEMA).
 # After editing, run `uv run distill rules` to re-apply without calling the LLM.
+
+# Discovery: channels you don't follow have to clear a higher bar.
+- name: "Discovery: not in English"
+  tiers: [candidate]
+  hide_if: { english: false }
+
+- name: "Discovery: not a strong match"
+  tiers: [candidate]
+  hide_if: { interest_match: [none, some] }
+
+- name: "Discovery: thin content"
+  tiers: [candidate]
+  hide_if: { substance: low }
 
 - name: Reaction or compilation
   hide_if: { format: [reaction, compilation] }

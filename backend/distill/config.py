@@ -26,6 +26,16 @@ class Settings:
     llm_price_output_per_mtok: float = 0.50
     llm_monthly_budget_usd: float = 3.00
     llm_batch_threshold: int = 20
+    # Discovery
+    discovery_daily_cap: int = 10
+    discovery_max_age_days: int = 30
+    discovery_min_views: int = 1000
+    discovery_searches_per_run: int = 10
+    discovery_search_every_h: float = 8
+    discovery_hn_every_h: float = 12
+    discovery_hn_min_points: int = 50
+    discovery_llm_every_days: float = 7
+    discovery_adjacent_channels_per_run: int = 10
 
 
 def load_settings() -> Settings:

@@ -11,7 +11,7 @@ from distill.config import Settings, settings
 from distill.rules import decide_llm, load_llm_rules
 
 CH = "UC" + "m" * 22
-GOOD = {"category": "gaming", "topic": "VCT final", "format": "highlights", "clickbait": False,
+GOOD = {"category": "gaming", "topic": "VCT final", "format": "highlights", "clickbait": False, "english": True,
         "substance": "high", "slop_signals": [], "interest_match": "strong", "one_line": "VCT final highlights"}
 
 

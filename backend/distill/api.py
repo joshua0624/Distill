@@ -1,21 +1,22 @@
 """HTTP API for the frontend. Run with `distill serve`."""
 import logging
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from distill import db
-from distill.classify import month_spend
+from distill.classify import classify, month_spend
 from distill.config import ROOT, settings
-from distill.ingest import apply_rules
+from distill.ingest import apply_rules, ingest
 from distill.takeout import RANK_SQL
-from distill.youtube import YouTube
+from distill.youtube import YouTube, looks_like_link
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="Distill")
@@ -126,7 +127,58 @@ def set_tier(channel_id: str, body: TierUpdate, conn: sqlite3.Connection = Conn)
     )
     if not cur.rowcount:
         raise HTTPException(404)
+    apply_rules(conn)  # e.g. a discovered channel promoted from the watch page shows up in Home now
     return {"ok": True}
+
+
+class AddChannel(BaseModel):
+    query: str
+    tier: Literal["trusted", "mixed", "blocked"]
+
+
+@app.post("/api/channels/add")
+def add_channel(body: AddChannel, background: BackgroundTasks, conn: sqlite3.Connection = Conn):
+    """Add a channel by link, @handle or id, and pull its recent uploads straight away.
+    A plain name returns {"choices": [...]} instead: the top search result is often wrong."""
+    try:
+        ch = yt.resolve_channel(body.query)
+        if not ch and not looks_like_link(body.query):
+            choices = yt.search_channels(body.query)
+            if choices:
+                return {"choices": choices}
+    except Exception as e:
+        log.warning("resolve %r failed: %s", body.query, e)
+        raise HTTPException(502, "Couldn't reach YouTube")
+    if not ch:
+        raise HTTPException(404, "No channel found")
+    existing = conn.execute("SELECT tier, reviewed FROM channels WHERE id = ?", (ch["id"],)).fetchone()
+    conn.execute(
+        "INSERT INTO channels (id, title, handle, thumb_url, tier, reviewed, source, tier_changed_at) "
+        "VALUES (?, ?, ?, ?, ?, 1, 'manual', datetime('now')) "
+        "ON CONFLICT(id) DO UPDATE SET tier = excluded.tier, reviewed = 1, title = excluded.title, "
+        "handle = COALESCE(excluded.handle, handle), thumb_url = COALESCE(excluded.thumb_url, thumb_url), "
+        "tier_changed_at = datetime('now')",
+        (ch["id"], ch["title"], ch["handle"], ch["thumb_url"], body.tier))
+    conn.commit()
+    if body.tier != "blocked":
+        ingest(conn, yt, channel_ids=[ch["id"]])
+    apply_rules(conn)
+    counts = conn.execute(
+        "SELECT COALESCE(SUM(d.visible), 0), COALESCE(SUM(d.reason = 'pending_llm'), 0) FROM decisions d "
+        "JOIN videos v ON v.id = d.video_id WHERE v.channel_id = ?", (ch["id"],)).fetchone()
+    if counts[1] and os.getenv("ANTHROPIC_API_KEY"):
+        background.add_task(_classify_soon)
+    # Commit now: the request's own commit only runs after background tasks finish, and the
+    # classifier needs to write.
+    conn.commit()
+    return {**ch, "tier": body.tier, "visible": counts[0], "pending": counts[1],
+            "previous_tier": existing["tier"] if existing and existing["reviewed"] else None}
+
+
+def _classify_soon() -> None:
+    """Classify a newly added mixed channel's videos without making the request wait for it."""
+    with db.session() as conn:
+        classify(conn, wait_s=0)
 
 
 @app.get("/api/channels")
@@ -144,7 +196,10 @@ CARD_SQL = """
     SELECT v.id, v.title, v.published_at, v.duration_s, v.views, v.thumb_url,
            c.id AS channel_id, c.title AS channel_title, c.thumb_url AS channel_thumb,
            p.position_s, p.watched_pct, p.last_watched_at, q.video_id IS NOT NULL AS in_queue,
-           d.visible, d.reason, d.overridden, cl.category, cl.one_line
+           d.visible, d.reason, d.overridden, cl.category, cl.one_line,
+           c.tier, v.source, v.discovered_via,
+           (SELECT CASE WHEN f.value = 'clear' THEN NULL ELSE f.signal END FROM feedback f
+            WHERE f.video_id = v.id AND f.signal IN ('up', 'down') ORDER BY f.id DESC LIMIT 1) AS rating
     FROM videos v
     JOIN channels c ON c.id = v.channel_id
     LEFT JOIN progress p ON p.video_id = v.id
@@ -157,7 +212,8 @@ CARD_SQL = """
 @app.get("/api/feed")
 def feed(limit: int = 60, offset: int = 0, conn: sqlite3.Connection = Conn):
     rows = conn.execute(
-        CARD_SQL + " WHERE d.visible = 1 ORDER BY v.published_at DESC LIMIT ? OFFSET ?",
+        CARD_SQL + " WHERE d.visible = 1 AND c.tier != 'candidate' "
+        "ORDER BY v.published_at DESC LIMIT ? OFFSET ?",
         (limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -292,6 +348,86 @@ def override(video_id: str, body: Override, conn: sqlite3.Connection = Conn):
     row = conn.execute("SELECT visible, reason, overridden FROM decisions WHERE video_id = ?",
                        (video_id,)).fetchone()
     return dict(row) if row else {"visible": None, "reason": None, "overridden": 0}
+
+
+@app.get("/api/discovery")
+def discovery(conn: sqlite3.Connection = Conn):
+    """The Discovery row: passing videos from channels I don't follow, capped and unwatched.
+    Takes the best of each category in turn, so lectures don't crowd out sports and gaming."""
+    rows = conn.execute(
+        CARD_SQL + " WHERE d.visible = 1 AND c.tier = 'candidate' AND p.video_id IS NULL "
+        "AND v.fetched_at >= datetime('now', ?) "
+        "ORDER BY cl.interest_match = 'strong' DESC, cl.substance = 'high' DESC, v.views DESC",
+        (f"-{settings.discovery_max_age_days} days",)).fetchall()
+    by_category: dict[str, list] = {}
+    for r in rows:
+        by_category.setdefault(r["category"] or "other", []).append(dict(r))
+    out: list[dict] = []
+    while len(out) < settings.discovery_daily_cap and any(by_category.values()):
+        for videos in by_category.values():
+            if videos and len(out) < settings.discovery_daily_cap:
+                out.append(videos.pop(0))
+    return out
+
+
+class Rating(BaseModel):
+    rating: Literal["up", "down"] | None
+
+
+@app.post("/api/videos/{video_id}/rating")
+def rate(video_id: str, body: Rating, conn: sqlite3.Connection = Conn):
+    """👍 / 👎. Feeds the prompt's examples, adjacent discovery and channel suggestions."""
+    if not conn.execute("SELECT 1 FROM videos WHERE id = ?", (video_id,)).fetchone():
+        raise HTTPException(404)
+    conn.execute("INSERT INTO feedback (video_id, signal, value) VALUES (?, ?, ?)",
+                 (video_id, body.rating or "up", "1" if body.rating else "clear"))
+    return {"rating": body.rating}
+
+
+SUGGEST_WINDOW = "-60 days"
+
+
+@app.get("/api/suggestions")
+def suggestions(conn: sqlite3.Connection = Conn):
+    """Promote a channel I keep liking or finishing; demote a trusted one I keep disliking."""
+    rows = conn.execute("""
+        WITH rating AS (
+            SELECT f.video_id, f.signal FROM feedback f
+            WHERE f.signal IN ('up', 'down') AND f.value != 'clear' AND f.created_at >= datetime('now', :w)
+              AND f.id = (SELECT MAX(id) FROM feedback WHERE video_id = f.video_id AND signal IN ('up', 'down'))
+        ), finished AS (
+            SELECT video_id FROM progress
+            WHERE watched_pct >= 50 AND last_watched_at >= datetime('now', :w)
+        ), per AS (
+            SELECT c.id, c.title, c.tier, c.thumb_url,
+                SUM(r.signal = 'up') AS ups, SUM(r.signal = 'down') AS downs,
+                SUM(fi.video_id IS NOT NULL) AS finished
+            FROM channels c JOIN videos v ON v.channel_id = c.id
+            LEFT JOIN rating r ON r.video_id = v.id
+            LEFT JOIN finished fi ON fi.video_id = v.id
+            WHERE c.tier != 'blocked' AND (r.video_id IS NOT NULL OR fi.video_id IS NOT NULL)
+            GROUP BY c.id
+        )
+        SELECT per.*, CASE WHEN tier = 'trusted' THEN 'demote' ELSE 'promote' END AS kind
+        FROM per
+        WHERE ((tier IN ('candidate', 'mixed') AND (ups >= 3 OR finished >= 3))
+               OR (tier = 'trusted' AND downs >= 2))
+          AND NOT EXISTS (SELECT 1 FROM suggestion_dismissals sd WHERE sd.channel_id = per.id
+                          AND sd.kind = CASE WHEN per.tier = 'trusted' THEN 'demote' ELSE 'promote' END)
+        ORDER BY ups + finished DESC
+    """, {"w": SUGGEST_WINDOW}).fetchall()
+    return [dict(r) for r in rows]
+
+
+class Dismiss(BaseModel):
+    kind: Literal["promote", "demote"]
+
+
+@app.post("/api/suggestions/{channel_id}/dismiss")
+def dismiss_suggestion(channel_id: str, body: Dismiss, conn: sqlite3.Connection = Conn):
+    conn.execute("INSERT OR REPLACE INTO suggestion_dismissals (channel_id, kind) VALUES (?, ?)",
+                 (channel_id, body.kind))
+    return {"ok": True}
 
 
 @app.get("/api/llm/usage")

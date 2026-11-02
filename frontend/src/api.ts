@@ -60,6 +60,41 @@ export interface FeedVideo {
   overridden: number | null
   category: string | null
   one_line: string | null
+  tier: Tier
+  source: string
+  discovered_via: string | null
+  rating: Rating
+}
+
+export type Rating = 'up' | 'down' | null
+
+export interface ChannelChoice {
+  id: string
+  title: string
+  description: string
+  thumb_url: string | null
+}
+
+export interface AddedChannel {
+  id: string
+  title: string
+  handle: string | null
+  tier: Tier
+  /** Videos from this channel now in the feed, and ones waiting for the classifier. */
+  visible: number
+  pending: number
+  previous_tier: Tier | null
+}
+
+export interface Suggestion {
+  id: string
+  title: string
+  tier: Tier
+  thumb_url: string | null
+  ups: number
+  downs: number
+  finished: number
+  kind: 'promote' | 'demote'
 }
 
 export interface HiddenReason {
@@ -117,6 +152,22 @@ export const api = {
     get<FeedVideo[]>(`/api/hidden?limit=${limit}&offset=${offset}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`),
   hiddenReasons: () => get<HiddenReason[]>('/api/hidden/reasons'),
   llmUsage: () => get<LlmUsage>('/api/llm/usage'),
+  discovery: () => get<FeedVideo[]>('/api/discovery'),
+  rate: (id: string, rating: Rating) => send('POST', `/api/videos/${id}/rating`, { rating }),
+  suggestions: () => get<Suggestion[]>('/api/suggestions'),
+  /** A name returns choices to pick from instead. Throws with the server's reason
+   * ("No channel found") so the form can show it. */
+  addChannel: async (query: string, tier: Tier): Promise<AddedChannel | { choices: ChannelChoice[] }> => {
+    const r = await fetch('/api/channels/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, tier }),
+    })
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail ?? `Error ${r.status}`)
+    return r.json()
+  },
+  dismissSuggestion: (id: string, kind: Suggestion['kind']) =>
+    send('POST', `/api/suggestions/${id}/dismiss`, { kind }),
   /** true = show anyway, false = hide this, null = let the rules decide again. */
   override: async (id: string, visible: boolean | null): Promise<Decision> => {
     const r = await fetch(`/api/videos/${id}/override`, {

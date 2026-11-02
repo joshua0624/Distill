@@ -16,6 +16,7 @@ def main() -> None:
     imp.add_argument("path", type=Path)
     ing = sub.add_parser("ingest", help="fetch new uploads from trusted and mixed channels, then classify")
     ing.add_argument("--no-classify", action="store_true", help="skip the LLM step")
+    ing.add_argument("--no-discover", action="store_true", help="skip discovery")
     cls = sub.add_parser("classify", help="classify mixed-channel videos waiting for the LLM")
     cls.add_argument("--limit", type=int, help="classify at most this many")
     cls.add_argument("--no-wait", action="store_true", help="submit a batch and return")
@@ -36,13 +37,21 @@ def main() -> None:
               f"{r.subscriptions} subscriptions. {r.channels} channels to triage.")
     elif args.cmd == "ingest":
         from distill.ingest import ingest
+        llm = None
+        if os.getenv("ANTHROPIC_API_KEY") and not args.no_classify:
+            import anthropic
+            llm = anthropic.Anthropic()
         try:
             with db.session() as conn:
-                r = ingest(conn, YouTube())
+                r = ingest(conn, YouTube(), discover=not args.no_discover, llm=llm)
         except MissingApiKey as e:
             raise SystemExit(f"error: {e}")
         print(f"{r.channels} channels, {r.new_videos} new videos, {r.detailed} detailed, "
               f"{r.short_checks} Shorts checks, {r.visible} visible, {r.errors} errors.")
+        if d := r.discovery:
+            print(f"Discovery: {d.searches} searches, {d.hn_stories} HN stories, {d.seeds} liked/watched "
+                  f"videos mined, {d.llm_channels} suggested channels -> {d.new_videos} new videos "
+                  f"from {d.new_channels} new channels, {d.errors} errors.")
         if not args.no_classify:
             if os.getenv("ANTHROPIC_API_KEY"):
                 _classify()

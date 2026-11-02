@@ -15,7 +15,7 @@ from distill.ingest import apply_rules
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v4"
 TASTE_PATH = ROOT / "config" / "taste.md"
 MAX_TOKENS = 400
 # Conservative per-video estimate used to keep a run inside the remaining budget.
@@ -40,9 +40,10 @@ SCHEMA = {
         "slop_signals": {"type": "array", "items": {"type": "string", "enum": SLOP_SIGNALS}},
         "interest_match": {"type": "string", "enum": ["none", "some", "strong"]},
         "one_line": {"type": "string"},
+        "english": {"type": "boolean"},
     },
     "required": ["category", "topic", "format", "clickbait", "substance", "slop_signals",
-                 "interest_match", "one_line"],
+                 "interest_match", "one_line", "english"],
     "additionalProperties": False,
 }
 
@@ -70,12 +71,16 @@ Fields:
   provoke outrage at someone; misleading_title = the title misstates what happens;
   drama_gossip = about creators' or athletes' personal drama rather than their work or play;
   filler = stretched or repeated content with little in it.
-- interest_match: the viewer follows every channel you see and marked it "mixed": some of its
-  videos are worth watching, some aren't. So the channel's usual subject already interests them,
-  even if it isn't in the list below; each message says what they have watched from the channel.
-  strong = squarely in a strong interest below, or very like what they watch from this channel;
-  some = a typical video for the channel; none = off from what they watch it for, or "Not for me".
-- one_line: plain words, under 20 words, saying what the video actually is. No hype.
+- interest_match: each message says whether the viewer follows the channel.
+  Followed channels are marked "mixed": some of their videos are worth watching, some aren't, so
+  the channel's usual subject already interests them even if it isn't in the list below; the
+  message says what they have watched from it. strong = squarely in a strong interest below, or
+  very like what they watch from this channel; some = a typical video for the channel; none =
+  off from what they watch it for, or "Not for me".
+  Channels the viewer doesn't follow were found by discovery; judge those against the interests
+  below only. strong = squarely in a strong interest; some = adjacent; none = outside them.
+- one_line: plain words, under 20 words, saying what the video actually is. No hype. Always in English.
+- english: true if the video itself is in English (judge by the title and description language).
 
 The viewer's interests:
 
@@ -101,16 +106,18 @@ def _client():
 
 def system_prompt(conn: sqlite3.Connection) -> str:
     text = INSTRUCTIONS.format(taste=TASTE_PATH.read_text().strip())
+    # Latest label per video: Show anyway / 👍 = wanted, Hide this / Not interested / 👎 = not.
     examples = conn.execute(
-        "SELECT v.title, c.title AS channel, f.value FROM feedback f "
-        "JOIN videos v ON v.id = f.video_id JOIN channels c ON c.id = v.channel_id "
-        "WHERE f.signal = 'override' AND f.value IN ('show', 'hide') "
-        "AND f.id = (SELECT MAX(id) FROM feedback WHERE video_id = f.video_id AND signal = 'override') "
+        "SELECT v.title, c.title AS channel, "
+        "CASE WHEN f.value = 'show' OR f.signal = 'up' THEN 'show' ELSE 'hide' END AS value "
+        "FROM feedback f JOIN videos v ON v.id = f.video_id JOIN channels c ON c.id = v.channel_id "
+        "WHERE f.value != 'clear' AND f.id = (SELECT MAX(id) FROM feedback WHERE video_id = f.video_id "
+        "  AND signal IN ('override', 'up', 'down')) "
         "ORDER BY f.id DESC LIMIT ?", (EXAMPLES,)
     ).fetchall()
     if examples:
-        text += ("\nVideos the viewer corrected by hand (\"wanted\" = they chose to see it, "
-                 "\"not wanted\" = they hid it). Use them to calibrate interest_match:\n")
+        text += ("\nVideos the viewer rated or corrected by hand (\"wanted\" = they liked it or chose "
+                 "to see it, \"not wanted\" = they disliked or hid it). Use them to calibrate interest_match:\n")
         text += "\n".join(f"- {'wanted' if e['value'] == 'show' else 'not wanted'}: "
                           f"\"{e['title']}\" ({e['channel']})" for e in examples)
     return text
@@ -122,7 +129,7 @@ def watched_titles(conn: sqlite3.Connection, channel_id: str, n: int = 6) -> lis
         "GROUP BY title ORDER BY MAX(watched_at) DESC LIMIT ?", (channel_id, n))]
 
 
-def video_message(v: sqlite3.Row, watched: list[str] = ()) -> str:
+def video_message(v: sqlite3.Row | dict, watched: list[str] = ()) -> str:
     tags = ", ".join(json.loads(v["tags_json"] or "[]")[:15])
     mins, secs = divmod(v["duration_s"] or 0, 60)
     parts = [
@@ -134,8 +141,12 @@ def video_message(v: sqlite3.Row, watched: list[str] = ()) -> str:
     if tags:
         parts.append(f"Tags: {tags}")
     parts.append("Description:\n" + ((v["description"] or "").strip()[:1500] or "(none)"))
-    if watched:
-        parts.append(f"The viewer has watched {v['watch_count']} videos from this channel, recently:\n"
+    if v["tier"] == "candidate":
+        parts.append(f"The viewer doesn't follow this channel. Discovery found it ({v['discovered_via'] or v['source']}).")
+        if watched:
+            parts.append("They have watched a few of its videos before:\n" + "\n".join(f"- {t}" for t in watched))
+    elif watched:
+        parts.append(f"The viewer follows this channel and has watched {v['watch_count']} of its videos, recently:\n"
                      + "\n".join(f"- {t}" for t in watched))
     else:
         parts.append("The viewer follows this channel but has no watch history with it.")
@@ -202,12 +213,13 @@ def _store_row(conn, video_id: str, data: dict | None, error: str | None, s: Set
     d = data or {}
     conn.execute(
         "INSERT OR REPLACE INTO classifications (video_id, category, topic, format, clickbait, "
-        "substance, slop_signals_json, interest_match, one_line, error, model, prompt_version) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "substance, slop_signals_json, interest_match, one_line, english, error, model, prompt_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (video_id, d.get("category"), d.get("topic"), d.get("format"),
          None if data is None else int(bool(d.get("clickbait"))), d.get("substance"),
          None if data is None else json.dumps(d.get("slop_signals") or []),
-         d.get("interest_match"), d.get("one_line"), error, s.llm_model, PROMPT_VERSION),
+         d.get("interest_match"), d.get("one_line"),
+         None if data is None else int(d.get("english", True)), error, s.llm_model, PROMPT_VERSION),
     )
 
 
@@ -215,7 +227,7 @@ def pending_videos(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Videos the hard rules passed to the LLM that have no classification from the current
     prompt (so a PROMPT_VERSION bump reclassifies) and aren't already waiting in a batch."""
     return conn.execute(
-        "SELECT v.*, c.title AS channel_title, c.watch_count FROM videos v "
+        "SELECT v.*, c.title AS channel_title, c.watch_count, c.tier FROM videos v "
         "JOIN channels c ON c.id = v.channel_id JOIN decisions d ON d.video_id = v.id "
         "LEFT JOIN classifications cl ON cl.video_id = v.id "
         "WHERE (d.reason IN ('pending_llm', 'llm_error') OR d.reason LIKE 'rule:%') AND d.overridden = 0 "
@@ -311,12 +323,13 @@ def evaluate(conn: sqlite3.Connection, labels: dict[str, bool] | None = None) ->
     out = {"labeled": len(labels), "unclassified": 0, "agree": 0, "wrongly_hidden": [], "wrongly_shown": []}
     for vid, wanted in labels.items():
         row = conn.execute(
-            "SELECT cl.*, v.title FROM classifications cl JOIN videos v ON v.id = cl.video_id "
-            "WHERE cl.video_id = ? AND cl.error IS NULL", (vid,)).fetchone()
+            "SELECT cl.*, v.title, c.tier FROM classifications cl JOIN videos v ON v.id = cl.video_id "
+            "JOIN channels c ON c.id = v.channel_id WHERE cl.video_id = ? AND cl.error IS NULL",
+            (vid,)).fetchone()
         if not row:
             out["unclassified"] += 1
             continue
-        cls = dict(row, clickbait=bool(row["clickbait"]),
+        cls = dict(row, clickbait=bool(row["clickbait"]), english=row["english"] != 0,
                    slop_signals=json.loads(row["slop_signals_json"] or "[]"))
         d = decide_llm(cls, rules)
         if d.visible == wanted:

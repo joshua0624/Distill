@@ -46,6 +46,8 @@ def decide(video: dict, tier: str, sport_rules: list[dict], s: Settings) -> Deci
 
     if tier == "trusted":
         return Decision(True, "sport_rule" if sport_rules else "trusted")
+    if tier == "candidate" and (video.get("views") or 0) < s.discovery_min_views:
+        return Decision(False, "too_few_views")
     return Decision(False, "pending_llm")
 
 
@@ -60,6 +62,8 @@ ORDINALS = {
 def load_llm_rules(path: Path = RULES_PATH) -> list[dict]:
     rules = yaml.safe_load(path.read_text()) or []
     for i, r in enumerate(rules):
+        if "default" in r and "tiers" in r:
+            raise ValueError(f"{path.name} rule {i + 1}: a default applies to every tier")
         if not ({"hide_if", "show_if", "default"} & r.keys()):
             raise ValueError(f"{path.name} rule {i + 1} needs hide_if, show_if or default")
         r.setdefault("name", f"rule {i + 1}")
@@ -86,6 +90,8 @@ def _matches(cls: dict, conditions: dict) -> bool:
 def decide_llm(cls: dict, rules: list[dict]) -> Decision:
     """First matching rule wins; the reason is `rule:<name>` so the Hidden view can show it."""
     for r in rules:
+        if "tiers" in r and cls.get("tier") not in r["tiers"]:
+            continue
         if "default" in r:
             return Decision(r["default"] == "show", f"rule:{r['name']}")
         if "hide_if" in r and _matches(cls, r["hide_if"]):

@@ -23,3 +23,20 @@ llm_monthly_budget_usd: 3.00
 # This many videos or more go through the Batch API (half price, minutes to an hour);
 # fewer are classified straight away.
 llm_batch_threshold: 20
+
+# Discovery — videos from channels you don't follow yet, shown in their own row on Home.
+# At most this many discovery videos show at once.
+discovery_daily_cap: 10
+discovery_max_age_days: 30
+# Videos from channels you don't follow need at least this many views (checked before the LLM).
+discovery_min_views: 1000
+# Saved searches from config/discovery.yaml: each costs 100 of the 10,000 daily quota units.
+discovery_searches_per_run: 10
+discovery_search_every_h: 8
+# Hacker News stories linking YouTube, at or above this many points.
+discovery_hn_every_h: 12
+discovery_hn_min_points: 50
+# The LLM suggests channels that fit config/taste.md; each one is checked before it's added.
+discovery_llm_every_days: 7
+# Channels linked or featured by videos you liked or watched past halfway.
+discovery_adjacent_channels_per_run: 10

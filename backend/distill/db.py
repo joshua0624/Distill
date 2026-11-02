@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS videos (
     views           INTEGER,
     likes           INTEGER,
     tags_json       TEXT,
-    source          TEXT NOT NULL,            -- rss | search | hn | adjacent
+    source          TEXT NOT NULL,            -- rss | search | hn | adjacent | llm
+    discovered_via  TEXT,                     -- discovery only: the query, HN story or seed channel
     fetched_at      TEXT NOT NULL DEFAULT (datetime('now')),
     details_at      TEXT                      -- when videos.list details were filled in
 );
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS classifications (
     slop_signals_json  TEXT,
     interest_match     TEXT,
     one_line           TEXT,
+    english            INTEGER,               -- NULL for classifications made before v4
     error              TEXT,                  -- refusal | max_tokens | bad_json | api error message
     model              TEXT NOT NULL,
     prompt_version     TEXT NOT NULL,
@@ -121,6 +123,23 @@ CREATE TABLE IF NOT EXISTS llm_batches (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS meta (
+    key    TEXT PRIMARY KEY,                  -- e.g. last run time of each discovery source
+    value  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS discovery_seeds (
+    video_id      TEXT PRIMARY KEY REFERENCES videos(id),  -- liked or watched video already mined
+    processed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS suggestion_dismissals (
+    channel_id    TEXT NOT NULL REFERENCES channels(id),
+    kind          TEXT NOT NULL,              -- promote | demote
+    dismissed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (channel_id, kind)
+);
+
 CREATE TABLE IF NOT EXISTS llm_batch_videos (
     batch_id    TEXT NOT NULL REFERENCES llm_batches(id),
     video_id    TEXT NOT NULL REFERENCES videos(id),
@@ -138,12 +157,24 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     # FastAPI may open and use a request's connection on different threads; each
     # request still gets its own connection, so this is safe.
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # Wait for another writer (e.g. ingest alongside the app) instead of failing after 5s.
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+# Columns added after a table first shipped: CREATE TABLE IF NOT EXISTS won't add them.
+COLUMNS = [("videos", "discovered_via", "TEXT"), ("classifications", "english", "INTEGER")]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, kind in COLUMNS:
+        if column not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
 
 @contextmanager

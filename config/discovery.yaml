@@ -1,0 +1,17 @@
+# Saved searches for discovery. Each run takes the ones that ran longest ago, up to
+# discovery_searches_per_run, and looks for videos from the last few days.
+# Results from channels you don't follow go through the strict discovery filter (rules.yaml).
+
+searches:
+  - Houston Rockets
+  - Miami Dolphins
+  - NBA film breakdown
+  - NFL film breakdown
+  - VALORANT VOD review
+  - VALORANT pro analysis
+  - Rocket League pro
+  - Claude Code
+  - AI coding agents
+  - AI podcast interview
+  - machine learning explained
+  - engineering explained
