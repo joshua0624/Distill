@@ -40,3 +40,10 @@ discovery_hn_min_points: 50
 discovery_llm_every_days: 7
 # Channels linked or featured by videos you liked or watched past halfway.
 discovery_adjacent_channels_per_run: 10
+
+# Schedule — used by `distill serve --schedule` (the always-on setup in docs/deploy.md).
+# Fetch, discover and classify this often. Each run uses ~100-1,100 of the 10,000 daily quota units.
+ingest_every_h: 2
+# Back up the database once a day after this hour (local time) to data/backups, keeping this many.
+backup_hour: 4
+backup_keep: 14

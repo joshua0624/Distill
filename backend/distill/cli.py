@@ -1,11 +1,12 @@
-"""Command line: `distill import-takeout <path>`, `ingest`, `classify`, `rules`, `eval`, `usage`, `serve`."""
+"""Command line: `distill import-takeout <path>`, `ingest`, `classify`, `rules`, `eval`, `usage`,
+`backup`, `serve [--schedule]`."""
 import argparse
 import logging
 import os
 from pathlib import Path
 
 from distill import db
-from distill.youtube import MissingApiKey, YouTube
+from distill.youtube import MissingApiKey
 
 
 def main() -> None:
@@ -23,10 +24,14 @@ def main() -> None:
     sub.add_parser("rules", help="re-apply config/rules.yaml (no LLM calls)")
     sub.add_parser("eval", help="check rules + classifications against your overrides")
     sub.add_parser("usage", help="show LLM spend")
+    bk = sub.add_parser("backup", help="copy the database to data/backups (or a folder you give)")
+    bk.add_argument("dest", type=Path, nargs="?")
     srv = sub.add_parser("serve", help="run the API (and built frontend)")
     srv.add_argument("--host", default="127.0.0.1")
     srv.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)))
     srv.add_argument("--reload", action="store_true")
+    srv.add_argument("--schedule", action="store_true",
+                     help="also run ingest and backups on a timer (see config/settings.yaml)")
     args = p.parse_args()
 
     if args.cmd == "import-takeout":
@@ -36,27 +41,15 @@ def main() -> None:
         print(f"Imported {r.watches} watches ({r.skipped} skipped: ads, Music, removed), "
               f"{r.subscriptions} subscriptions. {r.channels} channels to triage.")
     elif args.cmd == "ingest":
-        from distill.ingest import ingest
-        llm = None
-        if os.getenv("ANTHROPIC_API_KEY") and not args.no_classify:
-            import anthropic
-            llm = anthropic.Anthropic()
+        from distill.jobs import update
         try:
-            with db.session() as conn:
-                r = ingest(conn, YouTube(), discover=not args.no_discover, llm=llm)
+            lines = update(discover=not args.no_discover, classify=not args.no_classify)
         except MissingApiKey as e:
             raise SystemExit(f"error: {e}")
-        print(f"{r.channels} channels, {r.new_videos} new videos, {r.detailed} detailed, "
-              f"{r.short_checks} Shorts checks, {r.visible} visible, {r.errors} errors.")
-        if d := r.discovery:
-            print(f"Discovery: {d.searches} searches, {d.hn_stories} HN stories, {d.seeds} liked/watched "
-                  f"videos mined, {d.llm_channels} suggested channels -> {d.new_videos} new videos "
-                  f"from {d.new_channels} new channels, {d.errors} errors.")
-        if not args.no_classify:
-            if os.getenv("ANTHROPIC_API_KEY"):
-                _classify()
-            else:
-                print("Skipping classification: no ANTHROPIC_API_KEY in .env.")
+        print("\n".join(lines))
+    elif args.cmd == "backup":
+        from distill.jobs import backup
+        print(f"Saved {backup(args.dest.expanduser() if args.dest else None)}")
     elif args.cmd == "classify":
         _classify(limit=args.limit, wait=not args.no_wait)
     elif args.cmd == "rules":
@@ -89,6 +82,9 @@ def main() -> None:
                   f"{r['output_tokens']:>7} out  {r['cache_read_tokens']:>8} cached  ${r['cost_usd']:.4f}")
     elif args.cmd == "serve":
         import uvicorn
+        if args.schedule:
+            from distill.jobs import Scheduler
+            Scheduler().start()
         uvicorn.run("distill.api:app", host=args.host, port=args.port, reload=args.reload)
 
 

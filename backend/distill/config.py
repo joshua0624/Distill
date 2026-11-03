@@ -26,6 +26,10 @@ class Settings:
     llm_price_output_per_mtok: float = 0.50
     llm_monthly_budget_usd: float = 3.00
     llm_batch_threshold: int = 20
+    # Schedule (distill serve --schedule)
+    ingest_every_h: float = 2
+    backup_hour: int = 4
+    backup_keep: int = 14
     # Discovery
     discovery_daily_cap: int = 10
     discovery_max_age_days: int = 30

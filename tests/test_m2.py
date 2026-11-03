@@ -22,6 +22,7 @@ def client(tmp_path, monkeypatch):
 
 
 def test_feed_and_video(client):
+    assert client.get("/api/feed").headers["cache-control"] == "no-store"
     feed = client.get("/api/feed").json()
     assert [v["id"] for v in feed] == ["vid00000003", "vid00000002", "vid00000001"]
     assert feed[0]["in_queue"] == 0 and feed[0]["watched_pct"] is None

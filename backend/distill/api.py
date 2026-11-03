@@ -23,6 +23,15 @@ app = FastAPI(title="Distill")
 yt = YouTube()
 
 
+@app.middleware("http")
+async def no_store_api(request, call_next):
+    """API responses are live data: never let the browser (or the installed app) reuse one."""
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def get_conn():
     with db.session() as conn:
         yield conn

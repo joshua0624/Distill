@@ -2,7 +2,7 @@
 
 A personal YouTube front page: trusted channels, filtered mixed channels, no Shorts, no recommendation sidebar. See [docs/v1-spec.md](docs/v1-spec.md).
 
-**Status:** M4 — Takeout import, channel triage (with Rediscover), RSS ingest with hard rules, watch page with Watch later queue, resume and history, LLM classification of mixed channels with editable rules and a Hidden view, and discovery of new channels with 👍/👎 feedback.
+**Status:** M5 — runs as an always-on service with an installable phone app ([docs/deploy.md](docs/deploy.md)). Built so far: Takeout import, channel triage (with Rediscover), RSS ingest with hard rules, watch page with Watch later queue, resume and history, LLM classification of mixed channels with editable rules and a Hidden view, and discovery of new channels with 👍/👎 feedback.
 
 ## Setup
 
@@ -35,7 +35,7 @@ How mixed channels are filtered:
 - 👍/👎 on the watch page become examples for the classifier, seed linked-channel discovery, and drive the promote/demote suggestions on the Channels page.
 - `uv run distill classify` classifies on its own (e.g. to collect a batch that was still running); `uv run distill usage` shows spend.
 
-Hard-rule and classifier settings live in `config/settings.yaml`. Frontend dev server with hot reload: `cd frontend && npm run dev` (proxies `/api` to port 8000).
+Hard-rule, classifier, discovery and schedule settings live in `config/settings.yaml`. `uv run distill serve --schedule` also runs the update every 2 hours and a nightly backup (`uv run distill backup` makes one by hand); [docs/deploy.md](docs/deploy.md) sets that up on the Mac Mini with Tailscale. Frontend dev server with hot reload: `cd frontend && npm run dev` (proxies `/api` to port 8000).
 
 ## Notes
 

@@ -30,7 +30,8 @@ export default function App() {
   const watching = useLocation().pathname.startsWith('/watch/')
   return (
     <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-2 bg-bg px-4">
+      {/* The installed iPhone app draws under the status bar, so the header pads past it. */}
+      <header className="sticky top-0 z-20 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-2 bg-bg px-4 pt-[env(safe-area-inset-top)]">
         <a href="/" className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
           <img src="/favicon.svg" alt="" className="size-7" />
           Distill
