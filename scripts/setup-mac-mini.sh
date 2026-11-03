@@ -4,7 +4,7 @@
 #
 #   ./scripts/setup-mac-mini.sh
 #
-# It installs uv and Node with Homebrew if they're missing, builds the app, and installs a
+# It installs uv and Node (official builds, into ~/.local) if they're missing, builds the app, and installs a
 # LaunchAgent that runs `distill serve --schedule` at login and restarts it if it stops.
 # It changes no system settings: the sleep and login settings it reminds you about are yours.
 set -euo pipefail
@@ -14,6 +14,7 @@ LABEL="net.distill.serve"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOGS="$HOME/Library/Logs/Distill"
 PORT="${PORT:-8000}"
+NODE_DIR="$HOME/.local/node"
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 warn() { printf '\033[33m! %s\033[0m\n' "$*"; }
@@ -22,13 +23,24 @@ warn() { printf '\033[33m! %s\033[0m\n' "$*"; }
 cd "$REPO"
 
 say "1/5 Tools"
-if ! command -v brew >/dev/null; then
-  echo "Homebrew is needed to install uv and Node. Install it from https://brew.sh, then re-run this."
-  exit 1
+# Official prebuilt downloads into ~/.local, not Homebrew: Homebrew no longer builds packages
+# for Intel Macs, so it would compile Node from source.
+export PATH="$HOME/.local/bin:$NODE_DIR/bin:$PATH"
+if ! command -v uv >/dev/null; then
+  echo "Installing uv from astral.sh"
+  curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh
 fi
-command -v uv >/dev/null || brew install uv
-command -v node >/dev/null || brew install node
 UV="$(command -v uv)"
+if ! command -v node >/dev/null; then
+  arch="$(uname -m)"; [[ "$arch" == x86_64 ]] && arch=x64
+  # Newest LTS release that still ships a build for this Mac.
+  version="$(curl -fsSL https://nodejs.org/dist/index.json | "$UV" run --no-project python -I -c "
+import json, sys
+print(next(r['version'] for r in json.load(sys.stdin) if r['lts'] and 'osx-$arch-tar' in r['files']))")"
+  echo "Installing Node $version from nodejs.org"
+  rm -rf "$NODE_DIR" && mkdir -p "$NODE_DIR"
+  curl -fsSL "https://nodejs.org/dist/$version/node-$version-darwin-$arch.tar.gz" | tar -xz -C "$NODE_DIR" --strip-components 1
+fi
 echo "uv $("$UV" --version | cut -d' ' -f2), node $(node --version)"
 
 say "2/5 Build"

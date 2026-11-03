@@ -19,8 +19,9 @@ public.
 
 ## 2. Set up the Mac Mini
 
-1. Install [Homebrew](https://brew.sh) and the [Tailscale app](https://tailscale.com/download), and
-   sign in to Tailscale.
+1. Install the [Tailscale app](https://tailscale.com/download) and sign in. No Homebrew needed:
+   it no longer supports Intel Macs like the 2018 Mac Mini, so the script uses the official uv
+   and Node downloads instead.
 2. In the [Tailscale admin console](https://login.tailscale.com/admin/dns), turn on **MagicDNS**
    and **HTTPS Certificates** (needed for a proper `https://` address; iPhones only install web
    apps from HTTPS).
@@ -38,7 +39,7 @@ public.
    ~/Distill/scripts/setup-mac-mini.sh
    ```
 
-   It installs uv and Node if needed, builds the app, installs a LaunchAgent that keeps
+   It installs uv and Node into `~/.local` if needed, builds the app, installs a LaunchAgent that keeps
    `distill serve --schedule` running (restarted if it stops, started at login), and publishes it
    on your tailnet with `tailscale serve`. At the end it prints your address, like
    `https://mac-mini.your-tailnet.ts.net`.
